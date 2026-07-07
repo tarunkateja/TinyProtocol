@@ -114,6 +114,12 @@ export const api = {
     post<CareEvent>(`/babies/${babyId}/events`, body),
   deleteEvent: (id: string) => del<void>(`/events/${id}`),
 
+  // assistant
+  assistantChat: (
+    babyId: string,
+    messages: { role: 'user' | 'assistant'; content: string }[],
+  ) => post<{ reply: string }>(`/babies/${babyId}/assistant/chat`, { messages }),
+
   // reads
   timeline: (babyId: string, params?: { from?: string; to?: string; cursor?: string }) => {
     const q = new URLSearchParams();

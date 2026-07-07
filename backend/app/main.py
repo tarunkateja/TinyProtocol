@@ -3,7 +3,17 @@ from fastapi.middleware.cors import CORSMiddleware
 from mangum import Mangum
 
 from app.config import settings
-from app.routers import auth, babies, events, family, feeds, foods, summary, timeline
+from app.routers import (
+    assistant,
+    auth,
+    babies,
+    events,
+    family,
+    feeds,
+    foods,
+    summary,
+    timeline,
+)
 
 app = FastAPI(
     title="TinyProtocol API",
@@ -18,7 +28,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-for module in (auth, family, babies, foods, feeds, events, timeline, summary):
+for module in (auth, family, babies, foods, feeds, events, timeline, summary, assistant):
     app.include_router(module.router, prefix="/v1")
 
 

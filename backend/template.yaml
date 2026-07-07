@@ -11,11 +11,17 @@ Parameters:
     Type: String
     NoEcho: true
     MinLength: 32
+  AnthropicApiKey:
+    Type: String
+    NoEcho: true
+    Default: ""
+    Description: Enables the AI assistant endpoints when set.
 
 Globals:
   Function:
     Runtime: python3.12
-    Timeout: 15
+    # The assistant's tool loop can take a while; API Gateway caps at 30s.
+    Timeout: 29
     MemorySize: 512
 
 Resources:
@@ -66,6 +72,7 @@ Resources:
         Variables:
           TABLE_NAME: !Ref Table
           JWT_SECRET: !Ref JwtSecret
+          ANTHROPIC_API_KEY: !Ref AnthropicApiKey
           STAGE: !Ref Stage
       Policies:
         - DynamoDBCrudPolicy:

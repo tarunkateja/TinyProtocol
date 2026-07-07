@@ -16,6 +16,31 @@ from app.models.summary import (
 from app.services.tz import to_local
 
 
+def summarize_window(
+    baby: Baby,
+    window_from: datetime,
+    window_to: datetime,
+    tz_name: str,
+    day: date | None = None,
+) -> Summary:
+    """Query the timeline and aggregate it — shared by the summary endpoints
+    and the AI assistant's tools."""
+    from app.repo import keys, logs
+
+    items = logs.query_all_logs(
+        baby.id, keys.log_sk_bound(window_from), keys.log_sk_bound(window_to)
+    )
+    feeds = [
+        Feed.model_validate(i) for i in items if i.get("item_type") == keys.LOG_TYPE_FEED
+    ]
+    events = [
+        Event.model_validate(i)
+        for i in items
+        if i.get("item_type") == keys.LOG_TYPE_EVENT
+    ]
+    return build_summary(baby, feeds, events, window_from, window_to, tz_name, day=day)
+
+
 def build_summary(
     baby: Baby,
     feeds: list[Feed],

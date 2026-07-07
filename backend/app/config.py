@@ -13,6 +13,10 @@ class Settings(BaseSettings):
     jwt_secret: str = "dev-secret-change-me"
     jwt_expiry_days: int = 90
 
+    # Enables the AI assistant endpoints when set.
+    anthropic_api_key: str = ""
+    assistant_model: str = "claude-opus-4-8"
+
     # Point at DynamoDB Local for development (e.g. http://localhost:8000).
     dynamo_endpoint_url: str | None = None
 
