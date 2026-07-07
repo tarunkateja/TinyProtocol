@@ -1,4 +1,4 @@
-"""The AI assistant: Claude with tools over the baby's real logs.
+"""The AI assistant: an LLM with tools over the baby's real logs.
 
 Design rule: the model NEVER computes or invents nutrition numbers. It calls
 tools that run the same aggregation code as the Totals/Summary endpoints and
@@ -8,7 +8,7 @@ quotes what comes back. The system prompt enforces the medical guardrails.
 import json
 from datetime import date, datetime, timedelta, timezone
 
-import anthropic
+from openai import OpenAI
 
 from app.config import settings
 from app.models.baby import Baby
@@ -19,54 +19,60 @@ MAX_TOOL_ROUNDS = 5
 
 TOOLS = [
     {
-        "name": "get_day_summary",
-        "description": (
-            "Get the complete log for one calendar day (in the family's timezone): "
-            "every feed with its components and times, total ml split by source "
-            "(pumped breast milk / latch estimate / formula / metabolic formula), "
-            "natural protein g and lysine mg vs the daily targets, medications "
-            "given, spit-ups/vomits/fussiness with severity and times, and notes. "
-            "Call this when the user asks about a specific day. Call it once per "
-            "day you need — e.g. twice to compare two days."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "date": {
-                    "type": "string",
-                    "description": "The calendar day, formatted YYYY-MM-DD",
-                }
+        "type": "function",
+        "function": {
+            "name": "get_day_summary",
+            "description": (
+                "Get the complete log for one calendar day (in the family's timezone): "
+                "every feed with its components and times, total ml split by source "
+                "(pumped breast milk / latch estimate / formula / metabolic formula), "
+                "natural protein g and lysine mg vs the daily targets, medications "
+                "given, spit-ups/vomits/fussiness with severity and times, and notes. "
+                "Call this when the user asks about a specific day. Call it once per "
+                "day you need — e.g. twice to compare two days."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "date": {
+                        "type": "string",
+                        "description": "The calendar day, formatted YYYY-MM-DD",
+                    }
+                },
+                "required": ["date"],
             },
-            "required": ["date"],
         },
     },
     {
-        "name": "get_recent_summary",
-        "description": (
-            "Get the same aggregated log for a rolling window of the last N hours "
-            "ending right now. Call this for 'today so far', 'last 24 hours', "
-            "'since last night', or when drafting an update for the care team."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "hours": {
-                    "type": "integer",
-                    "description": "Window size in hours, 1 to 336",
-                }
+        "type": "function",
+        "function": {
+            "name": "get_recent_summary",
+            "description": (
+                "Get the same aggregated log for a rolling window of the last N hours "
+                "ending right now. Call this for 'today so far', 'last 24 hours', "
+                "'since last night', or when drafting an update for the care team."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "hours": {
+                        "type": "integer",
+                        "description": "Window size in hours, 1 to 336",
+                    }
+                },
+                "required": ["hours"],
             },
-            "required": ["hours"],
         },
     },
 ]
 
 
 def is_configured() -> bool:
-    return bool(settings.anthropic_api_key)
+    return bool(settings.openai_api_key)
 
 
-def _client() -> anthropic.Anthropic:
-    return anthropic.Anthropic(api_key=settings.anthropic_api_key)
+def _client() -> OpenAI:
+    return OpenAI(api_key=settings.openai_api_key)
 
 
 def _system_prompt(baby: Baby, tz_name: str, parent_name: str) -> str:
@@ -140,33 +146,52 @@ def chat(
 ) -> str:
     """Run the tool-use loop and return the assistant's final text reply."""
     client = _client()
-    convo: list[dict] = list(messages)
-    system = _system_prompt(baby, tz_name, parent_name)
+    convo: list[dict] = [
+        {"role": "system", "content": _system_prompt(baby, tz_name, parent_name)},
+        *messages,
+    ]
 
     for _ in range(MAX_TOOL_ROUNDS + 1):
-        response = client.messages.create(
+        response = client.chat.completions.create(
             model=settings.assistant_model,
             max_tokens=2048,
-            system=system,
             tools=TOOLS,
             messages=convo,
         )
+        msg = response.choices[0].message
 
-        if response.stop_reason != "tool_use":
-            return "".join(b.text for b in response.content if b.type == "text")
+        if not msg.tool_calls:
+            return msg.content or ""
 
-        convo.append({"role": "assistant", "content": response.content})
-        results = []
-        for block in response.content:
-            if block.type == "tool_use":
-                results.append(
+        convo.append(
+            {
+                "role": "assistant",
+                "content": msg.content,
+                "tool_calls": [
                     {
-                        "type": "tool_result",
-                        "tool_use_id": block.id,
-                        "content": _run_tool(block.name, block.input, baby, tz_name),
+                        "id": tc.id,
+                        "type": "function",
+                        "function": {
+                            "name": tc.function.name,
+                            "arguments": tc.function.arguments,
+                        },
                     }
-                )
-        convo.append({"role": "user", "content": results})
+                    for tc in msg.tool_calls
+                ],
+            }
+        )
+        for tc in msg.tool_calls:
+            try:
+                args = json.loads(tc.function.arguments or "{}")
+            except json.JSONDecodeError:
+                args = {}
+            convo.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": tc.id,
+                    "content": _run_tool(tc.function.name, args, baby, tz_name),
+                }
+            )
 
     return (
         "I wasn't able to finish looking that up — please try asking in a "

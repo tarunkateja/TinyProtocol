@@ -1,4 +1,4 @@
-"""Assistant endpoint tests with a faked Anthropic client — no real API calls."""
+"""Assistant endpoint tests with a faked OpenAI client — no real API calls."""
 
 import json
 from datetime import datetime, timezone
@@ -8,41 +8,40 @@ from app.config import settings
 from app.services import assistant
 
 
-class FakeBlock(SimpleNamespace):
-    pass
+def _msg(**kwargs):
+    return SimpleNamespace(
+        choices=[SimpleNamespace(message=SimpleNamespace(**kwargs))]
+    )
 
 
-class FakeAnthropicClient:
+class FakeOpenAIClient:
     """First call: request the get_recent_summary tool. Second: final answer."""
 
     def __init__(self):
         self.calls = []
-        self.messages = self
+        self.chat = self
+        self.completions = self
 
     def create(self, **kwargs):
         self.calls.append(kwargs)
         if len(self.calls) == 1:
-            return SimpleNamespace(
-                stop_reason="tool_use",
-                content=[
-                    FakeBlock(
-                        type="tool_use",
-                        id="toolu_1",
-                        name="get_recent_summary",
-                        input={"hours": 24},
+            return _msg(
+                content=None,
+                tool_calls=[
+                    SimpleNamespace(
+                        id="call_1",
+                        function=SimpleNamespace(
+                            name="get_recent_summary",
+                            arguments=json.dumps({"hours": 24}),
+                        ),
                     )
                 ],
             )
         # Echo the lysine total from the tool result to prove data flowed through.
-        tool_result = json.loads(self.calls[-1]["messages"][-1]["content"][0]["content"])
-        return SimpleNamespace(
-            stop_reason="end_turn",
-            content=[
-                FakeBlock(
-                    type="text",
-                    text=f"In the last 24h: {tool_result['lysine_mg']} mg lysine.",
-                )
-            ],
+        tool_result = json.loads(self.calls[-1]["messages"][-1]["content"])
+        return _msg(
+            content=f"In the last 24h: {tool_result['lysine_mg']} mg lysine.",
+            tool_calls=None,
         )
 
 
@@ -61,8 +60,8 @@ def test_chat_runs_tools_and_answers(auth_client, monkeypatch):
     )
     assert resp.status_code == 201, resp.text
 
-    fake = FakeAnthropicClient()
-    monkeypatch.setattr(settings, "anthropic_api_key", "test-key")
+    fake = FakeOpenAIClient()
+    monkeypatch.setattr(settings, "openai_api_key", "test-key")
     monkeypatch.setattr(assistant, "_client", lambda: fake)
 
     resp = c.post(
@@ -73,14 +72,19 @@ def test_chat_runs_tools_and_answers(auth_client, monkeypatch):
     assert resp.json()["reply"] == "In the last 24h: 42.0 mg lysine."
 
     # The system prompt carried the guardrails and baby context.
-    system = fake.calls[0]["system"]
-    assert "not medical advice" in system
-    assert "Pea" in system and "GA1" in system
-    assert fake.calls[0]["model"] == "claude-opus-4-8"
+    system = fake.calls[0]["messages"][0]
+    assert system["role"] == "system"
+    assert "not medical advice" in system["content"]
+    assert "Pea" in system["content"] and "GA1" in system["content"]
+    assert fake.calls[0]["model"] == "gpt-4o"
+
+    # The tool result went back with the matching tool_call_id.
+    tool_msg = fake.calls[1]["messages"][-1]
+    assert tool_msg["role"] == "tool" and tool_msg["tool_call_id"] == "call_1"
 
 
 def test_chat_unconfigured_returns_503(auth_client, monkeypatch):
-    monkeypatch.setattr(settings, "anthropic_api_key", "")
+    monkeypatch.setattr(settings, "openai_api_key", "")
     resp = auth_client.post(
         f"/v1/babies/{auth_client.baby_id}/assistant/chat",
         json={"messages": [{"role": "user", "content": "hi"}]},
@@ -89,7 +93,7 @@ def test_chat_unconfigured_returns_503(auth_client, monkeypatch):
 
 
 def test_chat_rejects_assistant_last_message(auth_client, monkeypatch):
-    monkeypatch.setattr(settings, "anthropic_api_key", "test-key")
+    monkeypatch.setattr(settings, "openai_api_key", "test-key")
     resp = auth_client.post(
         f"/v1/babies/{auth_client.baby_id}/assistant/chat",
         json={"messages": [{"role": "assistant", "content": "hello"}]},

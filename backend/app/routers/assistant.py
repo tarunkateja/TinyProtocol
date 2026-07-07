@@ -1,6 +1,6 @@
 from typing import Literal
 
-import anthropic
+import openai
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, model_validator
 
@@ -37,7 +37,7 @@ def assistant_chat(
 ):
     if not assistant.is_configured():
         raise HTTPException(
-            503, "The assistant isn't set up yet (missing Anthropic API key)"
+            503, "The assistant isn't set up yet (missing OpenAI API key)"
         )
     baby = get_baby_or_404(user, baby_id)
     fam = families.get_family(user.family_id)
@@ -51,8 +51,8 @@ def assistant_chat(
             parent_name,
             [m.model_dump() for m in body.messages],
         )
-    except anthropic.APIStatusError as e:
+    except openai.APIStatusError as e:
         raise HTTPException(502, f"Assistant is unavailable right now ({e.status_code})")
-    except anthropic.APIConnectionError:
+    except openai.APIConnectionError:
         raise HTTPException(502, "Assistant is unavailable right now (network)")
     return ChatOut(reply=reply)
