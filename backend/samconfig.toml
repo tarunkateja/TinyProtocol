@@ -1,0 +1,25 @@
+version = 0.1
+
+[default.build.parameters]
+cached = true
+parallel = true
+
+# sam deploy --config-env dev  (JwtSecret is passed on the first deploy via
+# --parameter-overrides and reused from the stack afterwards)
+[dev.deploy.parameters]
+stack_name = "tinyprotocol-dev"
+resolve_s3 = true
+region = "us-east-1"
+capabilities = "CAPABILITY_IAM"
+confirm_changeset = false
+fail_on_empty_changeset = false
+parameter_overrides = "Stage=\"dev\""
+
+[prod.deploy.parameters]
+stack_name = "tinyprotocol-prod"
+resolve_s3 = true
+region = "us-east-1"
+capabilities = "CAPABILITY_IAM"
+confirm_changeset = true
+fail_on_empty_changeset = false
+parameter_overrides = "Stage=\"prod\""

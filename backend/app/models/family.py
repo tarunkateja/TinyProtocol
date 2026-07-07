@@ -1,0 +1,87 @@
+from datetime import datetime
+from typing import Optional
+from zoneinfo import ZoneInfo
+
+from pydantic import BaseModel, EmailStr, Field, field_validator
+
+from app.models.baby import BabyIn
+
+
+def _validate_tz(tz: str) -> str:
+    try:
+        ZoneInfo(tz)
+    except Exception:
+        raise ValueError(f"Unknown IANA timezone: {tz!r}")
+    return tz
+
+
+class RegisterIn(BaseModel):
+    email: EmailStr
+    password: str = Field(min_length=8)
+    name: str = Field(min_length=1)
+    family_name: Optional[str] = None
+    timezone: str = "America/New_York"
+    # Optionally create the baby in the same call — one screen at signup.
+    baby: Optional[BabyIn] = None
+
+    _tz = field_validator("timezone")(_validate_tz)
+
+
+class LoginIn(BaseModel):
+    email: EmailStr
+    password: str
+
+
+class JoinIn(BaseModel):
+    """Second parent joining an existing family with an invite code."""
+
+    email: EmailStr
+    password: str = Field(min_length=8)
+    name: str = Field(min_length=1)
+    invite_code: str = Field(min_length=1)
+
+
+class UserOut(BaseModel):
+    id: str
+    email: str
+    name: str
+    family_id: str
+
+
+class TokenOut(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    user: UserOut
+
+
+class MemberOut(BaseModel):
+    email: str
+    name: str
+    role: str = "parent"
+
+
+class FamilyOut(BaseModel):
+    id: str
+    name: Optional[str] = None
+    timezone: str
+    members: list[MemberOut] = []
+
+
+class FamilyUpdate(BaseModel):
+    name: Optional[str] = None
+    timezone: Optional[str] = None
+
+    @field_validator("timezone")
+    @classmethod
+    def _tz(cls, v: Optional[str]) -> Optional[str]:
+        return _validate_tz(v) if v is not None else None
+
+
+class InviteOut(BaseModel):
+    code: str
+    expires_at: datetime
+
+
+class MeOut(BaseModel):
+    user: UserOut
+    family: FamilyOut
