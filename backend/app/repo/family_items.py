@@ -21,6 +21,39 @@ def get(family_id: str, sk: str) -> dict | None:
     return from_item(item) if item else None
 
 
+def update_fields(
+    family_id: str,
+    sk: str,
+    updates: dict,
+    condition: str | None = None,
+    condition_values: dict | None = None,
+) -> bool:
+    """Set top-level fields with an optional condition expression. Returns
+    False if the condition failed (e.g. someone else grabbed the work)."""
+    from botocore.exceptions import ClientError
+
+    names = {f"#f{i}": k for i, k in enumerate(updates)}
+    values = {f":v{i}": v for i, v in enumerate(updates.values())}
+    expr = ", ".join(f"#f{i} = :v{i}" for i in range(len(updates)))
+    kwargs: dict = {
+        "Key": {"PK": keys.family_pk(family_id), "SK": sk},
+        "UpdateExpression": f"SET {expr}",
+        "ExpressionAttributeNames": names,
+        "ExpressionAttributeValues": to_item(values),
+    }
+    if condition:
+        kwargs["ConditionExpression"] = condition
+        if condition_values:
+            kwargs["ExpressionAttributeValues"] = to_item({**values, **condition_values})
+    try:
+        get_table().update_item(**kwargs)
+        return True
+    except ClientError as e:
+        if e.response["Error"]["Code"] == "ConditionalCheckFailedException":
+            return False
+        raise
+
+
 def delete(family_id: str, sk: str) -> None:
     get_table().delete_item(Key={"PK": keys.family_pk(family_id), "SK": sk})
 

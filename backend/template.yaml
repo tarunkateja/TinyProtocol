@@ -62,6 +62,42 @@ Resources:
       PointInTimeRecoverySpecification:
         PointInTimeRecoveryEnabled: true
 
+  DocsBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub tinyprotocol-docs-${Stage}-${AWS::AccountId}
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+
+  WorkerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub tinyprotocol-worker-${Stage}
+      CodeUri: .
+      Handler: app.worker.handler
+      Timeout: 300
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref Table
+          JWT_SECRET: !Ref JwtSecret
+          OPENAI_API_KEY: !Ref OpenAiApiKey
+          DOCS_BUCKET: !Ref DocsBucket
+          STAGE: !Ref Stage
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref Table
+        - S3CrudPolicy:
+            BucketName: !Sub tinyprotocol-docs-${Stage}-${AWS::AccountId}
+
   ApiFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -73,10 +109,16 @@ Resources:
           TABLE_NAME: !Ref Table
           JWT_SECRET: !Ref JwtSecret
           OPENAI_API_KEY: !Ref OpenAiApiKey
+          DOCS_BUCKET: !Ref DocsBucket
+          WORKER_FUNCTION_NAME: !Ref WorkerFunction
           STAGE: !Ref Stage
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref Table
+        - S3CrudPolicy:
+            BucketName: !Sub tinyprotocol-docs-${Stage}-${AWS::AccountId}
+        - LambdaInvokePolicy:
+            FunctionName: !Sub tinyprotocol-worker-${Stage}
       Events:
         Root:
           Type: HttpApi

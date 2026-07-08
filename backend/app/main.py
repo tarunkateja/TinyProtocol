@@ -7,6 +7,8 @@ from app.routers import (
     assistant,
     auth,
     babies,
+    care,
+    docs,
     events,
     family,
     feeds,
@@ -30,7 +32,8 @@ app.add_middleware(
 )
 
 for module in (
-    auth, family, babies, foods, feeds, events, timeline, summary, assistant, presets,
+    auth, family, babies, foods, feeds, events, timeline, summary, assistant,
+    presets, care, docs,
 ):
     app.include_router(module.router, prefix="/v1")
 

@@ -46,6 +46,34 @@ TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "get_care_notes",
+            "description": (
+                "Get the family's care information: the emergency card (ER "
+                "interventions, when-to-call rules, care team phone numbers with "
+                "hours, bring-to-ER list, formula ordering rules), key facts "
+                "extracted from uploaded clinic documents, and the parents' OPEN "
+                "questions for the next clinic visit. Call this for anything about "
+                "contacting the care team, emergencies, clinic logistics, or when "
+                "drafting a clinic update (include open questions)."
+            ),
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_lab_results",
+            "description": (
+                "Get all stored lab results (analyte, value, unit, collection "
+                "date) — e.g. plasma lysine, glutarylcarnitine, carnitine — for "
+                "trend questions like 'how has her lysine level changed?'."
+            ),
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "get_recent_summary",
             "description": (
                 "Get the same aggregated log for a rolling window of the last N hours "
@@ -124,9 +152,46 @@ minimal and factual, and never speculate about causes of symptoms."""
 
 
 def _run_tool(
-    name: str, tool_input: dict, baby: Baby, tz_name: str, day_start: time = time.min
+    name: str,
+    tool_input: dict,
+    baby: Baby,
+    tz_name: str,
+    day_start: time = time.min,
+    family_id: str = "",
 ) -> str:
+    from app.repo import family_items
+    from app.repo import keys as rkeys
+
     now = datetime.now(timezone.utc)
+    if name == "get_care_notes":
+        care = family_items.get(family_id, rkeys.CARE_PROFILE_SK) or {}
+        care.pop("PK", None)
+        care.pop("SK", None)
+        docs = family_items.list_by_prefix(family_id, "DOC#")
+        doc_facts = [
+            {
+                "title": d.get("title"),
+                "key_facts": (d.get("extracted") or {}).get("key_facts", []),
+                "contacts": (d.get("extracted") or {}).get("contacts", []),
+            }
+            for d in docs
+            if d.get("status") == "ready"
+        ]
+        notes = family_items.list_by_prefix(family_id, "CLINICNOTE#")
+        open_questions = [n["text"] for n in notes if not n.get("done")]
+        return json.dumps({
+            "emergency_card": care,
+            "document_key_facts": doc_facts,
+            "open_clinic_questions": open_questions,
+        })
+    if name == "get_lab_results":
+        labs = family_items.list_by_prefix(family_id, "LAB#")
+        rows = [
+            {k: v for k, v in lab.items() if k in ("analyte", "value", "unit", "collected_date")}
+            for lab in labs
+        ]
+        rows.sort(key=lambda r: (r.get("analyte", ""), r.get("collected_date", "")))
+        return json.dumps({"lab_results": rows})
     if name == "get_day_summary":
         try:
             day = date.fromisoformat(str(tool_input.get("date", "")))
@@ -153,6 +218,7 @@ def chat(
     parent_name: str,
     messages: list[dict],
     day_start: time = time.min,
+    family_id: str = "",
 ) -> str:
     """Run the tool-use loop and return the assistant's final text reply."""
     client = _client()
@@ -200,7 +266,7 @@ def chat(
                     "role": "tool",
                     "tool_call_id": tc.id,
                     "content": _run_tool(
-                        tc.function.name, args, baby, tz_name, day_start
+                        tc.function.name, args, baby, tz_name, day_start, family_id
                     ),
                 }
             )

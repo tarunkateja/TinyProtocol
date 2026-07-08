@@ -44,6 +44,7 @@ export const eventTheme: Record<string, EventTheme> = {
   vomit: { color: '#D64550', soft: '#FAE3E5', icon: '🤮', label: 'Vomit' },
   fussiness: { color: '#9061C2', soft: '#F0E7F9', icon: '😾', label: 'Fussy' },
   note: { color: '#7A7488', soft: '#F0EEF4', icon: '📝', label: 'Note' },
+  weight: { color: '#3E8E5A', soft: '#E3F2E9', icon: '⚖️', label: 'Weight' },
 };
 
 export const spacing = { xs: 4, sm: 8, md: 12, lg: 16, xl: 24 };

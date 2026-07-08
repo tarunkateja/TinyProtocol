@@ -36,6 +36,8 @@ export interface VolumeTarget {
 export interface Targets {
   lysine_mg_per_day?: number | null;
   natural_protein_g_per_day?: number | null;
+  lysine_mg_per_kg?: number | null;
+  natural_protein_g_per_kg?: number | null;
   volume_targets?: VolumeTarget[];
 }
 
@@ -46,6 +48,7 @@ export interface Baby {
   conditions: string[];
   default_latch_rate_ml_per_10min: number;
   targets: Targets;
+  current_weight_g?: number | null;
 }
 
 export type FeedComponentIn =
@@ -104,7 +107,8 @@ export type EventType =
   | 'medication'
   | 'note'
   | 'pumping'
-  | 'diaper';
+  | 'diaper'
+  | 'weight';
 export type Severity = 'small' | 'medium' | 'large';
 export type PumpSide = 'left' | 'right' | 'both';
 export type DiaperKind = 'pee' | 'poop' | 'both';
@@ -124,6 +128,7 @@ export interface CareEvent {
   side?: PumpSide | null;
   duration_minutes?: number | null;
   diaper_kind?: DiaperKind | null;
+  weight_g?: number | null;
   note?: string | null;
 }
 
@@ -176,6 +181,8 @@ export interface Summary {
   natural_protein_g: number;
   lysine_mg: number;
   targets: Targets;
+  lysine_target_basis: string;
+  protein_target_basis: string;
   pct_of_lysine_target?: number | null;
   pct_of_protein_target?: number | null;
   volume_targets: {
@@ -232,4 +239,66 @@ export interface Family {
   day_start: string; // "HH:MM" — when the family's day begins
   rhythms: { feed: RhythmConfig; med: RhythmConfig };
   members: { email: string; name: string; role: string }[];
+}
+
+
+// ---- v3: care & safety ----
+export interface CareContact {
+  label: string;
+  phone: string;
+  when?: string | null;
+}
+
+export interface CareProfile {
+  patient: { name?: string | null; mrn?: string | null; dob?: string | null; diagnosis?: string | null };
+  er_interventions: string[];
+  when_to_call: string[];
+  contacts: CareContact[];
+  bring_to_er: string[];
+  formula_ordering: string[];
+  notes?: string | null;
+  updated_at?: string | null;
+}
+
+export interface ClinicNote {
+  id: string;
+  text: string;
+  done: boolean;
+  created_by: string;
+  created_at: string;
+}
+
+export interface LabResult {
+  id: string;
+  analyte: string;
+  value: number;
+  unit: string;
+  collected_date: string;
+  source_doc_id?: string | null;
+}
+
+export type DocStatus = 'uploaded' | 'processing' | 'ready' | 'error';
+
+export interface CareDoc {
+  id: string;
+  title: string;
+  filename: string;
+  content_type: string;
+  status: DocStatus;
+  error?: string | null;
+  summary?: string | null;
+  extracted?: {
+    doc_type: string;
+    summary_points: string[];
+    contacts: CareContact[];
+    key_facts: string[];
+  } | null;
+  lab_results_added: number;
+  created_at: string;
+}
+
+export interface DocCreated {
+  doc: CareDoc;
+  upload_url: string;
+  upload_content_type: string;
 }

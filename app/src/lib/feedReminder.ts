@@ -37,10 +37,34 @@ const CONTENT: Record<RhythmKind, (h: number) => { title: string; body: string }
 };
 
 interface ScheduleState {
-  notifId?: string | null;
+  notifId?: string | null; // legacy single id
+  notifIds?: string[];
   anchorAt?: string | null;
   anchorInterval?: number | null;
 }
+
+async function cancelAll(state: ScheduleState) {
+  for (const id of [state.notifId, ...(state.notifIds ?? [])]) {
+    if (id) await Notifications.cancelScheduledNotificationAsync(id).catch(() => {});
+  }
+}
+
+/** Feeds escalate: prolonged fasting risks catabolism for a GA1 baby. */
+const ESCALATIONS: Record<RhythmKind, { afterMin: number; title: string; body: (h: number) => string }[]> = {
+  feed: [
+    { afterMin: 0, title: '🍼 Feed time', body: (h) => `It's been ${h} h since the last feed.` },
+    { afterMin: 20, title: '🍼 Feed overdue — 20 min', body: () => 'No feed logged yet. Time to feed.' },
+    {
+      afterMin: 40,
+      title: '⚠️ Feed 40 min overdue',
+      body: () =>
+        'Long gaps risk catabolism for a GA1 baby. Feed now — if she refuses feeds, follow your sick-day steps and call the metabolic team.',
+    },
+  ],
+  med: [
+    { afterMin: 0, title: '💊 Medication time', body: (h) => `It's been ${h} h since the last dose.` },
+  ],
+};
 
 async function getState(kind: RhythmKind): Promise<ScheduleState> {
   const raw = await AsyncStorage.getItem(STATE_KEYS[kind]);
@@ -75,8 +99,8 @@ export async function syncRhythmNotification(
   const state = await getState(kind);
 
   if (!cfg.enabled || !lastAt) {
-    if (state.notifId) {
-      await Notifications.cancelScheduledNotificationAsync(state.notifId).catch(() => {});
+    if (state.notifId || state.notifIds?.length) {
+      await cancelAll(state);
       await setState(kind, {});
     }
     return;
@@ -84,26 +108,27 @@ export async function syncRhythmNotification(
 
   const unchanged =
     state.anchorAt === lastAt && state.anchorInterval === cfg.interval_hours;
-  if (unchanged && state.notifId) return;
+  if (unchanged && (state.notifId || state.notifIds?.length)) return;
 
-  if (state.notifId) {
-    await Notifications.cancelScheduledNotificationAsync(state.notifId).catch(() => {});
-  }
+  await cancelAll(state);
 
   const targetMs = new Date(lastAt).getTime() + cfg.interval_hours * 3600_000;
-  const seconds = Math.round((targetMs - Date.now()) / 1000);
-  let notifId: string | null = null;
-  if (seconds > 30) {
-    notifId = await Notifications.scheduleNotificationAsync({
-      content: { ...CONTENT[kind](cfg.interval_hours), sound: true },
-      trigger: {
-        type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
-        seconds,
-      },
-    });
+  const notifIds: string[] = [];
+  for (const step of ESCALATIONS[kind]) {
+    const seconds = Math.round((targetMs + step.afterMin * 60_000 - Date.now()) / 1000);
+    if (seconds <= 30) continue;
+    notifIds.push(
+      await Notifications.scheduleNotificationAsync({
+        content: { title: step.title, body: step.body(cfg.interval_hours), sound: true },
+        trigger: {
+          type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
+          seconds,
+        },
+      }),
+    );
   }
   await setState(kind, {
-    notifId,
+    notifIds,
     anchorAt: lastAt,
     anchorInterval: cfg.interval_hours,
   });

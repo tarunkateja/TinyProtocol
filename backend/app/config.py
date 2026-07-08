@@ -17,6 +17,11 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     assistant_model: str = "gpt-4o"
 
+    # Care documents pipeline.
+    docs_bucket: str = ""
+    worker_function_name: str = ""
+    max_doc_bytes: int = 15 * 1024 * 1024
+
     # Point at DynamoDB Local for development (e.g. http://localhost:8000).
     dynamo_endpoint_url: str | None = None
 

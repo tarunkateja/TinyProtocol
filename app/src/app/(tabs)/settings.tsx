@@ -35,6 +35,8 @@ export default function Settings() {
 
   const [lysineTarget, setLysineTarget] = useState(0);
   const [proteinTarget, setProteinTarget] = useState(0);
+  const [lysinePerKg, setLysinePerKg] = useState(0);
+  const [proteinPerKg, setProteinPerKg] = useState(0);
   const [latchRate, setLatchRate] = useState(20);
   const [volumes, setVolumes] = useState<VolumeDraft>(EMPTY_VOLUMES);
   const [savingTargets, setSavingTargets] = useState(false);
@@ -43,6 +45,8 @@ export default function Settings() {
     if (baby) {
       setLysineTarget(baby.targets.lysine_mg_per_day ?? 0);
       setProteinTarget(baby.targets.natural_protein_g_per_day ?? 0);
+      setLysinePerKg(baby.targets.lysine_mg_per_kg ?? 0);
+      setProteinPerKg(baby.targets.natural_protein_g_per_kg ?? 0);
       setLatchRate(baby.default_latch_rate_ml_per_10min);
       const draft: VolumeDraft = JSON.parse(JSON.stringify(EMPTY_VOLUMES));
       for (const vt of baby.targets.volume_targets ?? []) {
@@ -74,6 +78,8 @@ export default function Settings() {
         targets: {
           lysine_mg_per_day: lysineTarget > 0 ? lysineTarget : null,
           natural_protein_g_per_day: proteinTarget > 0 ? proteinTarget : null,
+          lysine_mg_per_kg: lysinePerKg > 0 ? lysinePerKg : null,
+          natural_protein_g_per_kg: proteinPerKg > 0 ? proteinPerKg : null,
           volume_targets,
         },
       });
@@ -132,6 +138,32 @@ export default function Settings() {
               Default latch rate (ml per 10 min)
             </Text>
             <Stepper value={latchRate} onChange={setLatchRate} step={5} suffix="ml" />
+
+            <Text style={styles.volumeHeader}>
+              Per-kg targets (recommended — recompute as {baby.name} grows)
+            </Text>
+            <Muted style={{ marginBottom: spacing.xs }}>
+              Current weight:{' '}
+              {baby.current_weight_g
+                ? `${fmtNum(baby.current_weight_g / 1000, 2)} kg`
+                : 'none logged yet — log a ⚖️ Weight event'}
+              {baby.current_weight_g && lysinePerKg > 0
+                ? ` → lysine target ${fmtNum((lysinePerKg * baby.current_weight_g) / 1000)} mg/day`
+                : ''}
+            </Muted>
+            <View style={{ flexDirection: 'row', gap: spacing.md }}>
+              <View style={{ flex: 1 }}>
+                <Muted style={{ marginBottom: 4 }}>lysine (mg/kg/day)</Muted>
+                <Stepper value={lysinePerKg} onChange={setLysinePerKg} step={5} suffix="mg" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Muted style={{ marginBottom: 4 }}>protein (g/kg/day)</Muted>
+                <Stepper value={proteinPerKg} onChange={setProteinPerKg} step={0.1} suffix="g" />
+              </View>
+            </View>
+            <Muted style={{ marginBottom: spacing.xs, marginTop: spacing.xs }}>
+              Per-kg wins over the absolute values above once a weight is logged.
+            </Muted>
 
             <Text style={styles.volumeHeader}>Volume targets (ml/day — 0 = no target)</Text>
             {VOLUME_LABELS.map(([cat, label]) => (
@@ -205,6 +237,37 @@ export default function Settings() {
         variant="secondary"
         onPress={() => router.push({ pathname: '/edit-food' })}
         style={{ marginBottom: spacing.md }}
+      />
+
+      <SectionTitle>Care & safety</SectionTitle>
+      <Button
+        title="🆘 Emergency card"
+        variant="secondary"
+        onPress={() => router.push('/emergency')}
+        style={{ marginBottom: spacing.sm }}
+      />
+      <Button
+        title="📂 Care documents (AI-processed)"
+        variant="secondary"
+        onPress={() => router.push('/docs')}
+        style={{ marginBottom: spacing.sm }}
+      />
+      <Button
+        title="🧪 Lab results & trends"
+        variant="secondary"
+        onPress={() => router.push('/labs')}
+        style={{ marginBottom: spacing.sm }}
+      />
+      <Button
+        title="📝 Clinic questions"
+        variant="secondary"
+        onPress={() => router.push('/clinic-notes')}
+        style={{ marginBottom: spacing.sm }}
+      />
+      <Button
+        title="📚 GA1 references & sources"
+        variant="secondary"
+        onPress={() => router.push('/references')}
       />
 
       <SectionTitle>Reminders</SectionTitle>

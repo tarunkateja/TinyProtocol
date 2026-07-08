@@ -7,7 +7,7 @@ from ulid import ULID
 
 from app.auth import CurrentUser, get_current_user
 from app.models.event import Event, EventIn, EventUpdate
-from app.repo import keys, logs
+from app.repo import family_items, keys, logs
 from app.routers.deps import get_baby_or_404, window_bounds
 
 router = APIRouter(tags=["events"])
@@ -16,6 +16,17 @@ router = APIRouter(tags=["events"])
 class EventPage(BaseModel):
     items: list[Event]
     next_cursor: Optional[str] = None
+
+
+def _maybe_update_weight(user: CurrentUser, event: Event) -> None:
+    """Weight check-ins keep Baby.current_weight_g fresh so per-kg targets
+    recompute. (Assumes new weight logs are the newest — editing historical
+    weights will also update it; acceptable for now.)"""
+    if event.type != "weight" or not event.weight_g:
+        return
+    baby = get_baby_or_404(user, event.baby_id)
+    updated = baby.model_copy(update={"current_weight_g": event.weight_g})
+    family_items.put(user.family_id, keys.baby_sk(baby.id), updated.model_dump(mode="json"))
 
 
 def event_item(family_id: str, event: Event) -> dict:
@@ -41,6 +52,7 @@ def create_event(
         **body.model_dump(),
     )
     logs.put_log(event_item(user.family_id, event))
+    _maybe_update_weight(user, event)
     return event
 
 
@@ -85,6 +97,7 @@ def update_event(
         {**event.model_dump(), **body.model_dump(exclude_unset=True)}
     )
     logs.replace_log(raw["PK"], raw["SK"], event_item(user.family_id, updated))
+    _maybe_update_weight(user, updated)
     return updated
 
 

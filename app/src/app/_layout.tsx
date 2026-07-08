@@ -72,6 +72,26 @@ function RootNavigator() {
           name="reminders"
           options={{ presentation: 'modal', title: 'Reminders' }}
         />
+        <Stack.Screen
+          name="emergency"
+          options={{ presentation: 'modal', title: '🆘 Emergency' }}
+        />
+        <Stack.Screen
+          name="docs"
+          options={{ presentation: 'modal', title: 'Care documents' }}
+        />
+        <Stack.Screen
+          name="clinic-notes"
+          options={{ presentation: 'modal', title: 'Clinic questions' }}
+        />
+        <Stack.Screen
+          name="labs"
+          options={{ presentation: 'modal', title: 'Lab results' }}
+        />
+        <Stack.Screen
+          name="references"
+          options={{ presentation: 'modal', title: 'GA1 references' }}
+        />
       </Stack.Protected>
       <Stack.Protected guard={!token}>
         <Stack.Screen name="(auth)/login" options={{ headerShown: false }} />

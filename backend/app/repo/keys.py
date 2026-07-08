@@ -71,6 +71,22 @@ def chat_sk(chat_id: str) -> str:
     return f"CHAT#{chat_id}"
 
 
+CARE_PROFILE_SK = "CAREPROFILE"
+
+
+def clinic_note_sk(note_id: str) -> str:
+    return f"CLINICNOTE#{note_id}"
+
+
+def doc_sk(doc_id: str) -> str:
+    return f"DOC#{doc_id}"
+
+
+def lab_sk(collected_date: str, lab_id: str) -> str:
+    # Date first so a prefix query returns chronological order.
+    return f"LAB#{collected_date}#{lab_id}"
+
+
 def baby_pk(baby_id: str) -> str:
     return f"BABY#{baby_id}"
 

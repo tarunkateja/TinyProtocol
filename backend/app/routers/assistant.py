@@ -55,7 +55,7 @@ def _run_reply(user: CurrentUser, chat: Chat, content: str) -> ChatReply:
     try:
         reply = assistant.chat(
             baby, fam["timezone"] if fam else "UTC", parent_name, history,
-            day_start=day_start,
+            day_start=day_start, family_id=user.family_id,
         )
     except openai.APIStatusError as e:
         raise HTTPException(502, f"Assistant is unavailable right now ({e.status_code})")

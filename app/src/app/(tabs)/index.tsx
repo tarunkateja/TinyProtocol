@@ -98,6 +98,9 @@ export default function Today() {
 
   return (
     <View style={{ flex: 1 }}>
+      <Pressable style={styles.sosBtn} onPress={() => router.push('/emergency')} hitSlop={8}>
+        <Text style={styles.sosText}>🆘 Emergency</Text>
+      </Pressable>
       <FlatList
         data={timelineQ.data?.items ?? []}
         keyExtractor={(item) => item.id}
@@ -394,6 +397,8 @@ function EventRow({
     if (event.duration_minutes) bits.push(`${fmtNum(event.duration_minutes)} min`);
   } else if (event.type === 'diaper') {
     title = `Diaper — ${event.diaper_kind === 'both' ? 'pee + poop' : event.diaper_kind}`;
+  } else if (event.type === 'weight') {
+    title = `Weight · ${fmtNum((event.weight_g ?? 0) / 1000, 2)} kg`;
   } else {
     if (event.severity) bits.push(event.severity);
     if (event.med_name) bits.push(event.med_name);
@@ -440,6 +445,18 @@ function NoBaby() {
 }
 
 const styles = StyleSheet.create({
+  sosBtn: {
+    alignSelf: 'flex-end',
+    marginTop: spacing.sm,
+    marginRight: spacing.lg,
+    backgroundColor: '#FAE3E5',
+    borderWidth: 1,
+    borderColor: colors.danger,
+    borderRadius: radius.pill,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  sosText: { color: colors.danger, fontFamily: fonts.heavy, fontSize: 13 },
   rhythmBanner: {
     backgroundColor: colors.primarySoft,
     borderRadius: radius.md,

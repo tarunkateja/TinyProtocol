@@ -20,6 +20,11 @@ class Targets(BaseModel):
 
     lysine_mg_per_day: Optional[float] = Field(None, gt=0)
     natural_protein_g_per_day: Optional[float] = Field(None, gt=0)
+    # Per-kg targets (GA1 targets are weight-based, e.g. lysine 65-100 mg/kg/day
+    # at 0-6 months). When set AND a current weight exists, these win over the
+    # absolute values above.
+    lysine_mg_per_kg: Optional[float] = Field(None, gt=0)
+    natural_protein_g_per_kg: Optional[float] = Field(None, gt=0)
     volume_targets: list[VolumeTarget] = Field(default_factory=list, max_length=6)
 
     @model_validator(mode="after")
@@ -64,3 +69,5 @@ class BabyUpdate(BaseModel):
 class Baby(BabyIn):
     id: str
     created_at: datetime
+    # Maintained automatically from the newest logged weight event.
+    current_weight_g: Optional[float] = None

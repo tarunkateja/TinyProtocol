@@ -2,7 +2,12 @@ import * as SecureStore from 'expo-secure-store';
 
 import type {
   Baby,
+  CareDoc,
   CareEvent,
+  CareProfile,
+  ClinicNote,
+  DocCreated,
+  LabResult,
   ChatFull,
   ChatMeta,
   ChatReply,
@@ -143,6 +148,29 @@ export const api = {
     post<ChatReply>(`/babies/${babyId}/assistant/chats`, { content }),
   sendChatMessage: (chatId: string, content: string) =>
     post<ChatReply>(`/assistant/chats/${chatId}/messages`, { content }),
+
+  // care & safety (v3)
+  getCareProfile: () => get<CareProfile>('/care-profile'),
+  putCareProfile: (body: CareProfile) => request<CareProfile>('/care-profile', {
+    method: 'PUT',
+    body: JSON.stringify(body),
+  }),
+  listClinicNotes: () => get<ClinicNote[]>('/clinic-notes'),
+  createClinicNote: (text: string) => post<ClinicNote>('/clinic-notes', { text }),
+  updateClinicNote: (id: string, body: { text?: string; done?: boolean }) =>
+    patch<ClinicNote>(`/clinic-notes/${id}`, body),
+  deleteClinicNote: (id: string) => del<void>(`/clinic-notes/${id}`),
+  listLabs: () => get<LabResult[]>('/labs'),
+  createLab: (body: { analyte: string; value: number; unit: string; collected_date: string }) =>
+    post<LabResult>('/labs', body),
+  deleteLab: (id: string) => del<void>(`/labs/${id}`),
+  createDoc: (body: { filename: string; content_type: string; title?: string }) =>
+    post<DocCreated>('/docs', body),
+  listDocs: () => get<CareDoc[]>('/docs'),
+  getDoc: (id: string) => get<CareDoc>(`/docs/${id}`),
+  processDoc: (id: string) => post<CareDoc>(`/docs/${id}/process`),
+  docDownloadUrl: (id: string) => get<{ url: string }>(`/docs/${id}/download`),
+  deleteDoc: (id: string) => del<void>(`/docs/${id}`),
 
   // reads
   timeline: (babyId: string, params?: { from?: string; to?: string; cursor?: string }) => {

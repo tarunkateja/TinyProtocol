@@ -13,6 +13,7 @@ import { TimePickerRow } from '../components/TimePickerRow';
 const TYPES: EventType[] = [
   'pumping',
   'diaper',
+  'weight',
   'spit_up',
   'vomit',
   'fussiness',
@@ -39,6 +40,7 @@ export default function LogEvent() {
   const [side, setSide] = useState<PumpSide>('both');
   const [pumpMinutes, setPumpMinutes] = useState(0);
   const [diaperKind, setDiaperKind] = useState<DiaperKind>('pee');
+  const [weightKg, setWeightKg] = useState(0);
   const [note, setNote] = useState('');
   const [when, setWhen] = useState(new Date());
   const [busy, setBusy] = useState(false);
@@ -58,6 +60,7 @@ export default function LogEvent() {
         if (ev.side) setSide(ev.side);
         if (ev.duration_minutes) setPumpMinutes(ev.duration_minutes);
         if (ev.diaper_kind) setDiaperKind(ev.diaper_kind);
+        if (ev.weight_g) setWeightKg(Math.round(ev.weight_g / 10) / 100);
         if (ev.note) setNote(ev.note);
       })
       .catch((e) => Alert.alert('Could not load event', e.message));
@@ -72,7 +75,9 @@ export default function LogEvent() {
         ? note.trim().length > 0
         : type === 'pumping'
           ? pumpedMl > 0
-          : true;
+          : type === 'weight'
+            ? weightKg > 0
+            : true;
 
   const save = async () => {
     if (!baby) return;
@@ -89,6 +94,7 @@ export default function LogEvent() {
         side: type === 'pumping' ? side : undefined,
         duration_minutes: type === 'pumping' && pumpMinutes > 0 ? pumpMinutes : undefined,
         diaper_kind: type === 'diaper' ? diaperKind : undefined,
+        weight_g: type === 'weight' ? Math.round(weightKg * 1000) : undefined,
         note: note.trim() || undefined,
       };
       if (editing) {
@@ -174,6 +180,16 @@ export default function LogEvent() {
           </View>
           <Muted style={{ marginTop: spacing.xs }}>
             Add color/consistency in the notes if the care team asked you to watch it.
+          </Muted>
+        </Card>
+      )}
+
+      {type === 'weight' && (
+        <Card>
+          <Text style={styles_label}>Weight (kg)</Text>
+          <Stepper value={weightKg} onChange={setWeightKg} step={0.05} suffix="kg" />
+          <Muted style={{ marginTop: spacing.xs }}>
+            Updates the per-kg lysine/protein targets automatically.
           </Muted>
         </Card>
       )}

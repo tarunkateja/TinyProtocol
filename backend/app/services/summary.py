@@ -16,6 +16,7 @@ from app.models.summary import (
     PumpingBrief,
     Summary,
     VolumeTargetEval,
+    WeightBrief,
 )
 from app.services.tz import to_local
 
@@ -66,13 +67,33 @@ def build_summary(
             hours = round((window_to - window_from).total_seconds() / 3600)
             window_label = f"last {hours}h"
 
+    # Per-kg targets win when a current weight exists (GA1 targets are
+    # weight-based and change as the baby grows).
+    targets = baby.targets
+    lysine_basis = protein_basis = ""
+    if baby.current_weight_g:
+        kg = round(baby.current_weight_g / 1000, 2)
+        updates: dict = {}
+        if targets.lysine_mg_per_kg:
+            updates["lysine_mg_per_day"] = round(targets.lysine_mg_per_kg * kg, 1)
+            lysine_basis = f"{_num(targets.lysine_mg_per_kg)} mg/kg × {_num(kg)} kg"
+        if targets.natural_protein_g_per_kg:
+            updates["natural_protein_g_per_day"] = round(
+                targets.natural_protein_g_per_kg * kg, 2
+            )
+            protein_basis = f"{_num(targets.natural_protein_g_per_kg)} g/kg × {_num(kg)} kg"
+        if updates:
+            targets = targets.model_copy(update=updates)
+
     s = Summary(
         baby_id=baby.id,
         baby_name=baby.name,
         window_from=window_from,
         window_to=window_to,
         day=day,
-        targets=baby.targets,
+        targets=targets,
+        lysine_target_basis=lysine_basis,
+        protein_target_basis=protein_basis,
         breast_milk=BreastMilkBreakdown(),
         window_label=window_label,
     )
@@ -132,6 +153,10 @@ def build_summary(
                     id=ev.id, occurred_at=ev.occurred_at,
                     diaper_kind=ev.diaper_kind or "pee", note=ev.note,
                 )
+            )
+        elif ev.type == "weight":
+            s.weights.append(
+                WeightBrief(id=ev.id, occurred_at=ev.occurred_at, weight_g=ev.weight_g or 0)
             )
         elif ev.type == "medication":
             s.meds.append(
@@ -242,10 +267,16 @@ def render_text(s: Summary, tz_name: str) -> str:
             bits.append(f"{_num(s.metabolic_formula_scoops)} scoops")
         lines.append(f"• Metabolic formula {' + '.join(bits)}")
 
-    lines.append(_target_line("Natural protein", s.natural_protein_g, "g",
-                              s.targets.natural_protein_g_per_day, s.pct_of_protein_target))
-    lines.append(_target_line("Lysine", s.lysine_mg, "mg",
-                              s.targets.lysine_mg_per_day, s.pct_of_lysine_target))
+    protein_line = _target_line("Natural protein", s.natural_protein_g, "g",
+                                s.targets.natural_protein_g_per_day, s.pct_of_protein_target)
+    if s.protein_target_basis:
+        protein_line += f" [{s.protein_target_basis}]"
+    lines.append(protein_line)
+    lysine_line = _target_line("Lysine", s.lysine_mg, "mg",
+                               s.targets.lysine_mg_per_day, s.pct_of_lysine_target)
+    if s.lysine_target_basis:
+        lysine_line += f" [{s.lysine_target_basis}]"
+    lines.append(lysine_line)
 
     for vt in s.volume_targets:
         label = _CATEGORY_LABEL[vt.category]
@@ -257,6 +288,11 @@ def render_text(s: Summary, tz_name: str) -> str:
             tail = f"over by {_num(-gap)}" if vt.status == "over" else f"{_num(gap)} left"
             lines.append(f"{label}: {_num(vt.actual_ml)} ml of max {_num(vt.target_ml)} ({tail})")
 
+    if s.weights:
+        w = s.weights[-1]
+        lines.append(
+            f"Weight: {_num(round(w.weight_g / 1000, 2))} kg ({_t(w.occurred_at, tz_name)})"
+        )
     if s.pumping_sessions:
         lines.append(
             f"Pumped: {_num(s.pumped_output_ml)} ml ({s.pumping_sessions} sessions) · "

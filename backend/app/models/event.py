@@ -6,7 +6,7 @@ from pydantic import AwareDatetime, BaseModel, Field, model_validator
 from app.models.food import DoseUnit
 
 EventType = Literal[
-    "spit_up", "vomit", "fussiness", "medication", "note", "pumping", "diaper"
+    "spit_up", "vomit", "fussiness", "medication", "note", "pumping", "diaper", "weight"
 ]
 Severity = Literal["small", "medium", "large"]
 PumpSide = Literal["left", "right", "both"]
@@ -26,6 +26,7 @@ class _EventFields(BaseModel):
     side: Optional[PumpSide] = None
     duration_minutes: Optional[float] = Field(None, gt=0)
     diaper_kind: Optional[DiaperKind] = None  # diaper
+    weight_g: Optional[float] = Field(None, gt=0)  # weight check-in
     note: Optional[str] = None
 
     @model_validator(mode="after")
@@ -36,6 +37,8 @@ class _EventFields(BaseModel):
             raise ValueError("pumping events need pumped_ml")
         if self.type == "diaper" and self.diaper_kind is None:
             raise ValueError("diaper events need diaper_kind")
+        if self.type == "weight" and self.weight_g is None:
+            raise ValueError("weight events need weight_g")
         return self
 
 
@@ -54,6 +57,7 @@ class EventUpdate(BaseModel):
     side: Optional[PumpSide] = None
     duration_minutes: Optional[float] = Field(None, gt=0)
     diaper_kind: Optional[DiaperKind] = None
+    weight_g: Optional[float] = Field(None, gt=0)
     note: Optional[str] = None
 
 

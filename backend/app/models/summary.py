@@ -47,6 +47,12 @@ class DiaperBrief(BaseModel):
     note: Optional[str] = None
 
 
+class WeightBrief(BaseModel):
+    id: str
+    occurred_at: datetime
+    weight_g: float
+
+
 class VolumeTargetEval(BaseModel):
     category: VolumeCategory
     direction: Literal["min", "max"]
@@ -99,6 +105,9 @@ class Summary(BaseModel):
     natural_protein_g: float = 0
     lysine_mg: float = 0
     targets: Targets = Targets()
+    # Set when the target came from per-kg × current weight.
+    lysine_target_basis: str = ""
+    protein_target_basis: str = ""
     pct_of_lysine_target: Optional[float] = None
     pct_of_protein_target: Optional[float] = None
     volume_targets: list[VolumeTargetEval] = []
@@ -109,6 +118,7 @@ class Summary(BaseModel):
     diapers: DiaperCounts = DiaperCounts()
 
     feeds: list[FeedBrief] = []
+    weights: list[WeightBrief] = []
     pumpings: list[PumpingBrief] = []
     diaper_events: list[DiaperBrief] = []
     spit_ups: list[EventBrief] = []
