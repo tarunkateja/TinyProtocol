@@ -1,11 +1,22 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import * as Notifications from 'expo-notifications';
+import { useQuery } from '@tanstack/react-query';
 import React, { useEffect, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 
+import { api } from '../lib/api';
+import {
+  FeedRhythm,
+  ensureNotifPermission,
+  getFeedRhythm,
+  nextFeedDue,
+  setFeedRhythm,
+  syncFeedReminder,
+} from '../lib/feedReminder';
+import { useBaby } from '../lib/hooks';
 import { colors, fonts, radius, spacing } from '../lib/theme';
-import { Button, Card, Muted, SectionTitle } from '../components/ui';
+import { Button, Card, Muted, SectionTitle, Stepper } from '../components/ui';
 
 interface Reminder {
   notifId: string;
@@ -24,27 +35,32 @@ async function saveReminders(list: Reminder[]) {
   await AsyncStorage.setItem(STORE_KEY, JSON.stringify(list));
 }
 
-async function ensurePermission(): Promise<boolean> {
-  const current = await Notifications.getPermissionsAsync();
-  if (current.granted) return true;
-  const req = await Notifications.requestPermissionsAsync();
-  if (!req.granted) {
-    Alert.alert(
-      'Notifications are off',
-      'Allow notifications for TinyProtocol in iPhone Settings to get feed reminders.',
-    );
-    return false;
-  }
-  return true;
-}
-
 export default function Reminders() {
   const [reminders, setReminders] = useState<Reminder[]>([]);
   const [dailyTime, setDailyTime] = useState(new Date());
+  const [rhythm, setRhythm] = useState<FeedRhythm | null>(null);
+
+  const { baby } = useBaby();
+  const timelineQ = useQuery({
+    queryKey: ['timeline', baby?.id],
+    queryFn: () => api.timeline(baby!.id),
+    enabled: !!baby,
+  });
+  const lastFeedAt =
+    timelineQ.data?.items.find((i) => i.item_type === 'FEED')?.occurred_at ?? null;
 
   useEffect(() => {
     loadReminders().then(setReminders);
+    getFeedRhythm().then(setRhythm);
   }, []);
+
+  const updateRhythm = async (patch: Partial<FeedRhythm>) => {
+    if (patch.enabled && !(await ensureNotifPermission())) return;
+    await setFeedRhythm(patch);
+    setRhythm(await syncFeedReminder(lastFeedAt));
+  };
+
+  const due = rhythm ? nextFeedDue(rhythm, lastFeedAt) : null;
 
   const persist = async (list: Reminder[]) => {
     setReminders(list);
@@ -52,7 +68,7 @@ export default function Reminders() {
   };
 
   const addOneOff = async (hours: number) => {
-    if (!(await ensurePermission())) return;
+    if (!(await ensureNotifPermission())) return;
     const notifId = await Notifications.scheduleNotificationAsync({
       content: {
         title: '🍼 Feed time',
@@ -76,7 +92,7 @@ export default function Reminders() {
   };
 
   const addDaily = async () => {
-    if (!(await ensurePermission())) return;
+    if (!(await ensureNotifPermission())) return;
     const hour = dailyTime.getHours();
     const minute = dailyTime.getMinutes();
     const notifId = await Notifications.scheduleNotificationAsync({
@@ -105,6 +121,39 @@ export default function Reminders() {
         Reminders fire on this phone only (even with the app closed). Your partner sets
         their own on their phone.
       </Muted>
+
+      <SectionTitle>Feed rhythm (auto-reschedules)</SectionTitle>
+      <Card>
+        <View style={styles.rhythmRow}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.rhythmTitle}>Remind after every feed</Text>
+            <Muted>
+              Counts from the LAST LOGGED FEED — log a feed and the reminder moves
+              automatically (fed at 12:00 with 2.5 h → 2:30; fed at 3:00 → 5:30).
+            </Muted>
+          </View>
+          <Switch
+            value={rhythm?.enabled ?? false}
+            onValueChange={(v) => updateRhythm({ enabled: v })}
+          />
+        </View>
+        {rhythm?.enabled && (
+          <>
+            <Text style={[styles.rhythmTitle, { marginTop: spacing.md }]}>Every… (hours)</Text>
+            <Stepper
+              value={rhythm.intervalHours}
+              onChange={(v) => updateRhythm({ intervalHours: Math.max(0.5, v) })}
+              step={0.5}
+              suffix="h"
+            />
+            <Muted style={{ marginTop: spacing.sm }}>
+              {due
+                ? `Next: ${due.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })} (based on the last feed)`
+                : 'Log a feed to start the clock.'}
+            </Muted>
+          </>
+        )}
+      </Card>
 
       <SectionTitle>Remind me once</SectionTitle>
       <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
@@ -151,6 +200,8 @@ export default function Reminders() {
 }
 
 const styles = StyleSheet.create({
+  rhythmRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+  rhythmTitle: { fontFamily: fonts.bold, color: colors.text, fontSize: 15, marginBottom: 2 },
   chip: {
     backgroundColor: colors.primarySoft,
     borderRadius: radius.pill,

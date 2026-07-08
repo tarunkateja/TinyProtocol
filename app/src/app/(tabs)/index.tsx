@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
-import { useRouter } from 'expo-router';
-import React, { useState } from 'react';
+import { useFocusEffect, useRouter } from 'expo-router';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   FlatList,
@@ -13,6 +13,11 @@ import {
 
 import { api } from '../../lib/api';
 import { fmtNum, fmtTime, localDateString } from '../../lib/format';
+import {
+  FeedRhythm,
+  nextFeedDue,
+  syncFeedReminder,
+} from '../../lib/feedReminder';
 import { useBaby, useInvalidateLogs } from '../../lib/hooks';
 import { colors, eventTheme, fonts, radius, spacing } from '../../lib/theme';
 import type { CareEvent, Feed, TimelineEntry } from '../../lib/types';
@@ -35,10 +40,33 @@ export default function Today() {
     enabled: !!baby,
   });
 
+  const lastFeedAt = useMemo(() => {
+    const feed = timelineQ.data?.items.find((i) => i.item_type === 'FEED');
+    return feed?.occurred_at ?? null;
+  }, [timelineQ.data]);
+
+  const [rhythm, setRhythm] = useState<FeedRhythm | null>(null);
+  const [, setTick] = useState(0);
+
+  // Re-anchor the reminder to the newest feed; also re-runs on screen focus
+  // (e.g. after changing the rhythm in Reminders).
+  useFocusEffect(
+    useCallback(() => {
+      syncFeedReminder(lastFeedAt).then(setRhythm);
+    }, [lastFeedAt]),
+  );
+
+  // Minute tick so the countdown stays fresh.
+  useEffect(() => {
+    const iv = setInterval(() => setTick((t) => t + 1), 30_000);
+    return () => clearInterval(iv);
+  }, []);
+
   if (!baby && !isLoading) return <NoBaby />;
   if (!baby) return null;
 
   const s = dayQ.data;
+  const due = rhythm ? nextFeedDue(rhythm, lastFeedAt) : null;
 
   const confirmDelete = (entry: TimelineEntry) => {
     const isFeed = entry.item_type === 'FEED';
@@ -71,7 +99,25 @@ export default function Today() {
           />
         }
         ListHeaderComponent={
-          <View style={styles.statsRow}>
+          <>
+            {due && (
+              <Pressable onPress={() => router.push('/reminders')}>
+                <View
+                  style={[
+                    styles.rhythmBanner,
+                    due.getTime() < Date.now() && styles.rhythmOverdue,
+                  ]}
+                >
+                  <Text style={styles.rhythmText}>
+                    {due.getTime() < Date.now()
+                      ? `🍼 Feed due — ${fmtCountdown(Date.now() - due.getTime())} overdue`
+                      : `⏰ Next feed ≈ ${due.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })} · in ${fmtCountdown(due.getTime() - Date.now())}`}
+                  </Text>
+                  <Muted>every {rhythm!.intervalHours} h · tap to adjust</Muted>
+                </View>
+              </Pressable>
+            )}
+            <View style={styles.statsRow}>
             <Stat label="fed today" value={`${fmtNum(s?.total_ml)} ml`} />
             <Stat
               label="breast milk"
@@ -88,7 +134,8 @@ export default function Today() {
               }
               color={colors.metabolic}
             />
-          </View>
+            </View>
+          </>
         }
         ListEmptyComponent={
           <Muted style={{ textAlign: 'center', marginTop: 40 }}>
@@ -114,6 +161,12 @@ export default function Today() {
       </View>
     </View>
   );
+}
+
+function fmtCountdown(ms: number): string {
+  const mins = Math.max(1, Math.round(ms / 60000));
+  if (mins < 60) return `${mins}m`;
+  return `${Math.floor(mins / 60)}h ${String(mins % 60).padStart(2, '0')}m`;
 }
 
 function Stat({
@@ -247,6 +300,20 @@ function NoBaby() {
 }
 
 const styles = StyleSheet.create({
+  rhythmBanner: {
+    backgroundColor: colors.primarySoft,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.primary,
+    padding: spacing.md,
+    marginBottom: spacing.sm,
+    alignItems: 'center',
+  },
+  rhythmOverdue: {
+    backgroundColor: '#FAE3E5',
+    borderColor: colors.danger,
+  },
+  rhythmText: { fontFamily: fonts.heavy, fontSize: 15, color: colors.text, marginBottom: 2 },
   statsRow: {
     flexDirection: 'row',
     gap: spacing.sm,
