@@ -50,10 +50,11 @@ export default function LogFeed() {
   const [measuredMl, setMeasuredMl] = useState(0);
 
   useEffect(() => {
+    if (feedId) return; // editing: the feed's own ratio takes over below
     AsyncStorage.getItem(RECIPE_KEY).then((raw) => {
       const r = raw ? JSON.parse(raw) : DEFAULT_RECIPE;
       setRecipe(r);
-      if (!feedId) setMixTotal(r.bm + r.ga1); // full bottle by default
+      setMixTotal(r.bm + r.ga1); // full bottle by default
     });
   }, []);
 
@@ -73,15 +74,38 @@ export default function LogFeed() {
           setMeasuredMl(latch.measured_ml ?? 0);
         } else {
           setMode('bottle');
-          setBottleMode('custom');
-          const l: Record<string, number> = {};
-          const pw: Record<string, number> = {};
-          for (const c of feed.components) {
-            if (c.kind === 'liquid') l[c.food_id] = c.volume_ml ?? 0;
-            if (c.kind === 'powder') pw[c.food_id] = c.scoops ?? 0;
+          const liquidsIn = feed.components.filter((c) => c.kind === 'liquid');
+          const powdersIn = feed.components.filter((c) => c.kind === 'powder');
+          const bmComp = liquidsIn.find((c) => c.food_category === 'breast_milk');
+          const ga1Comp = liquidsIn.find((c) => c.food_category === 'metabolic_formula');
+
+          if (powdersIn.length === 0 && liquidsIn.length === 2 && bmComp && ga1Comp) {
+            // A breast-milk + GA1 mix: edit as ONE total, split by this
+            // feed's own ratio (e.g. logged 40+20, she drank 55 → type 55).
+            setBottleMode('mixed');
+            setRecipe({ bm: bmComp.volume_ml ?? 0, ga1: ga1Comp.volume_ml ?? 0 });
+            setMixTotal((bmComp.volume_ml ?? 0) + (ga1Comp.volume_ml ?? 0));
+          } else if (powdersIn.length === 0 && liquidsIn.length === 1) {
+            const c = liquidsIn[0];
+            setBottleMode(
+              c.food_category === 'breast_milk'
+                ? 'breast_milk'
+                : c.food_category === 'metabolic_formula'
+                  ? 'ga1'
+                  : 'formula',
+            );
+            setSingleMl(c.volume_ml ?? 0);
+          } else {
+            setBottleMode('custom');
+            const l: Record<string, number> = {};
+            const pw: Record<string, number> = {};
+            for (const c of feed.components) {
+              if (c.kind === 'liquid') l[c.food_id] = c.volume_ml ?? 0;
+              if (c.kind === 'powder') pw[c.food_id] = c.scoops ?? 0;
+            }
+            setLiquidMl(l);
+            setPowderScoops(pw);
           }
-          setLiquidMl(l);
-          setPowderScoops(pw);
         }
       })
       .catch((e) => Alert.alert('Could not load feed', e.message));
