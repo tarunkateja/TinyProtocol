@@ -166,21 +166,27 @@ export default function Today() {
             {timelineQ.isLoading ? 'Loading…' : 'No feeds or events logged yet.'}
           </Muted>
         }
-        renderItem={({ item }) =>
-          item.item_type === 'FEED' ? (
-            <FeedRow
-              feed={item}
-              onPress={() => router.push({ pathname: '/log-feed', params: { feedId: item.id } })}
-              onLongPress={() => confirmDelete(item)}
-            />
-          ) : (
-            <EventRow
-              event={item}
-              onPress={() => router.push({ pathname: '/log-event', params: { eventId: item.id } })}
-              onLongPress={() => confirmDelete(item)}
-            />
-          )
-        }
+        renderItem={({ item, index }) => {
+          const next = timelineQ.data?.items[index + 1]; // older neighbour
+          return (
+            <>
+              {item.item_type === 'FEED' ? (
+                <FeedRow
+                  feed={item}
+                  onPress={() => router.push({ pathname: '/log-feed', params: { feedId: item.id } })}
+                  onLongPress={() => confirmDelete(item)}
+                />
+              ) : (
+                <EventRow
+                  event={item}
+                  onPress={() => router.push({ pathname: '/log-event', params: { eventId: item.id } })}
+                  onLongPress={() => confirmDelete(item)}
+                />
+              )}
+              {next && <TimeGap newer={item.occurred_at} older={next.occurred_at} />}
+            </>
+          );
+        }}
       />
       <View style={styles.fabRow}>
         <Button title="＋ Feed" onPress={() => router.push('/log-feed')} style={{ flex: 1 }} />
@@ -191,6 +197,32 @@ export default function Today() {
           style={{ flex: 1 }}
         />
       </View>
+    </View>
+  );
+}
+
+/** Visual breathing room between entries, proportional to the elapsed time —
+ * a burst of activity reads dense, a long overnight stretch reads long. */
+function TimeGap({ newer, older }: { newer: string; older: string }) {
+  const mins = Math.max(0, (new Date(newer).getTime() - new Date(older).getTime()) / 60000);
+  // 30m ≈ 18px … capped at ~80px for very long gaps.
+  const height = Math.min(80, 6 + (mins / 60) * 24);
+  const newerDay = new Date(newer).toDateString();
+  const olderDay = new Date(older).toDateString();
+  const crossesDay = newerDay !== olderDay;
+  return (
+    <View style={styles.gapWrap}>
+      <View style={[styles.gapLine, { height }]} />
+      {mins >= 25 && (
+        <Text style={styles.gapLabel}>{fmtCountdown(mins * 60000)} apart</Text>
+      )}
+      {crossesDay && (
+        <View style={styles.dayChip}>
+          <Text style={styles.dayChipText}>
+            {new Date(older).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })}
+          </Text>
+        </View>
+      )}
     </View>
   );
 }
@@ -430,6 +462,32 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   statValue: { fontSize: 17, fontFamily: fonts.heavy },
+  gapWrap: { alignItems: 'center', marginBottom: spacing.sm },
+  gapLine: {
+    width: 2,
+    borderRadius: 1,
+    backgroundColor: colors.border,
+  },
+  gapLabel: {
+    position: 'absolute',
+    top: '50%',
+    marginTop: -8,
+    backgroundColor: colors.bg,
+    paddingHorizontal: 8,
+    color: colors.muted,
+    fontFamily: fonts.semibold,
+    fontSize: 11,
+  },
+  dayChip: {
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.pill,
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    marginTop: 4,
+  },
+  dayChipText: { color: colors.muted, fontFamily: fonts.bold, fontSize: 12 },
   entry: {
     flexDirection: 'row',
     alignItems: 'flex-start',
@@ -440,7 +498,6 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     borderLeftWidth: 4,
     padding: spacing.md,
-    marginBottom: spacing.sm,
   },
   iconChip: {
     width: 36,
