@@ -7,8 +7,23 @@ import { api } from '../../lib/api';
 import { fmtNum } from '../../lib/format';
 import { useAuth } from '../../lib/auth';
 import { useBaby, useFoods } from '../../lib/hooks';
-import { colors, spacing } from '../../lib/theme';
+import { colors, fonts, spacing } from '../../lib/theme';
+import type { VolumeCategory, VolumeTarget } from '../../lib/types';
 import { Button, Card, Field, Muted, SectionTitle, Stepper } from '../../components/ui';
+
+type VolumeDraft = Record<VolumeCategory, { min: number; max: number }>;
+
+const EMPTY_VOLUMES: VolumeDraft = {
+  breast_milk: { min: 0, max: 0 },
+  formula: { min: 0, max: 0 },
+  metabolic_formula: { min: 0, max: 0 },
+};
+
+const VOLUME_LABELS: [VolumeCategory, string][] = [
+  ['breast_milk', '🍼 Breast milk'],
+  ['formula', '🥫 Regular formula'],
+  ['metabolic_formula', '⚗️ GA1 / metabolic formula'],
+];
 
 export default function Settings() {
   const router = useRouter();
@@ -21,6 +36,7 @@ export default function Settings() {
   const [lysineTarget, setLysineTarget] = useState(0);
   const [proteinTarget, setProteinTarget] = useState(0);
   const [latchRate, setLatchRate] = useState(20);
+  const [volumes, setVolumes] = useState<VolumeDraft>(EMPTY_VOLUMES);
   const [savingTargets, setSavingTargets] = useState(false);
 
   useEffect(() => {
@@ -28,11 +44,29 @@ export default function Settings() {
       setLysineTarget(baby.targets.lysine_mg_per_day ?? 0);
       setProteinTarget(baby.targets.natural_protein_g_per_day ?? 0);
       setLatchRate(baby.default_latch_rate_ml_per_10min);
+      const draft: VolumeDraft = JSON.parse(JSON.stringify(EMPTY_VOLUMES));
+      for (const vt of baby.targets.volume_targets ?? []) {
+        draft[vt.category][vt.direction] = vt.ml_per_day;
+      }
+      setVolumes(draft);
     }
   }, [baby?.id]);
 
+  const setVolume = (cat: VolumeCategory, dir: 'min' | 'max', v: number) =>
+    setVolumes((cur) => ({ ...cur, [cat]: { ...cur[cat], [dir]: v } }));
+
   const saveBaby = async () => {
     if (!baby) return;
+    const volume_targets: VolumeTarget[] = [];
+    for (const [cat] of VOLUME_LABELS) {
+      const { min, max } = volumes[cat];
+      if (min > 0 && max > 0 && min > max) {
+        Alert.alert('Check targets', `${cat.replace('_', ' ')}: min is larger than max.`);
+        return;
+      }
+      if (min > 0) volume_targets.push({ category: cat, direction: 'min', ml_per_day: min });
+      if (max > 0) volume_targets.push({ category: cat, direction: 'max', ml_per_day: max });
+    }
     setSavingTargets(true);
     try {
       await api.updateBaby(baby.id, {
@@ -40,6 +74,7 @@ export default function Settings() {
         targets: {
           lysine_mg_per_day: lysineTarget > 0 ? lysineTarget : null,
           natural_protein_g_per_day: proteinTarget > 0 ? proteinTarget : null,
+          volume_targets,
         },
       });
       qc.invalidateQueries();
@@ -80,6 +115,38 @@ export default function Settings() {
               Default latch rate (ml per 10 min)
             </Text>
             <Stepper value={latchRate} onChange={setLatchRate} step={5} suffix="ml" />
+
+            <Text style={styles.volumeHeader}>Volume targets (ml/day — 0 = no target)</Text>
+            {VOLUME_LABELS.map(([cat, label]) => (
+              <View key={cat} style={{ marginTop: spacing.sm }}>
+                <Text style={styles.label}>{label}</Text>
+                <View style={{ flexDirection: 'row', gap: spacing.md }}>
+                  <View style={{ flex: 1 }}>
+                    <Muted style={{ marginBottom: 4 }}>at least (min)</Muted>
+                    <Stepper
+                      value={volumes[cat].min}
+                      onChange={(v) => setVolume(cat, 'min', v)}
+                      step={10}
+                      suffix="ml"
+                    />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Muted style={{ marginBottom: 4 }}>at most (max)</Muted>
+                    <Stepper
+                      value={volumes[cat].max}
+                      onChange={(v) => setVolume(cat, 'max', v)}
+                      step={10}
+                      suffix="ml"
+                    />
+                  </View>
+                </View>
+              </View>
+            ))}
+            <Muted style={{ marginTop: spacing.sm }}>
+              Your case: breast milk max 400, GA1 formula min 120. Powder scoops don't
+              count toward ml — log GA1 as the "prepared" liquid food.
+            </Muted>
+
             <Button
               title="Save"
               onPress={saveBaby}
@@ -155,7 +222,13 @@ export default function Settings() {
 }
 
 const styles = StyleSheet.create({
-  label: { fontSize: 13, fontWeight: '600', color: colors.muted, marginBottom: 6 },
+  label: { fontSize: 13, fontFamily: fonts.semibold, color: colors.muted, marginBottom: 6 },
+  volumeHeader: {
+    fontSize: 14,
+    fontFamily: fonts.heavy,
+    color: colors.text,
+    marginTop: spacing.lg,
+  },
   foodRow: {
     flexDirection: 'row',
     alignItems: 'center',
