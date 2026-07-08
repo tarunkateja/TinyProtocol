@@ -323,6 +323,23 @@ function EntryCard({
   );
 }
 
+/** How the feed was given — shown in the heading with a shade variation
+ * inside the rose family so kinds are tellable apart at a glance. */
+function feedKind(feed: Feed): { label: string; icon: string; color: string } {
+  const comps = feed.components;
+  if (comps.some((c) => c.kind === 'latch'))
+    return { label: 'Latch', icon: '🤱', color: '#A84479' }; // deepest rose
+  const cats = new Set(comps.map((c) => c.food_category));
+  const hasPowder = comps.some((c) => c.kind === 'powder');
+  if (cats.size > 1 || hasPowder)
+    return { label: 'Mixed bottle', icon: '🧪', color: '#C75D92' };
+  if (cats.has('metabolic_formula'))
+    return { label: 'GA1 bottle', icon: '⚗️', color: '#B95FA3' }; // mauve-rose
+  if (cats.has('formula'))
+    return { label: 'Formula bottle', icon: '🥫', color: '#E08BB5' }; // light rose
+  return { label: 'Breast milk bottle', icon: '🍼', color: '#D96A9C' }; // base rose
+}
+
 function FeedRow({
   feed,
   onPress,
@@ -332,6 +349,7 @@ function FeedRow({
   onPress: () => void;
   onLongPress: () => void;
 }) {
+  const kind = feedKind(feed);
   const desc = feed.components
     .map((c) => {
       if (c.kind === 'liquid') return `${fmtNum(c.volume_ml)}ml ${c.food_name}`;
@@ -341,8 +359,8 @@ function FeedRow({
     .join(' + ');
   return (
     <EntryCard
-      theme={eventTheme.feed}
-      title={`${fmtNum(feed.totals.total_ml)} ml feed`}
+      theme={{ color: kind.color, soft: eventTheme.feed.soft, icon: kind.icon }}
+      title={`${fmtNum(feed.totals.total_ml)} ml · ${kind.label}`}
       time={fmtTime(feed.occurred_at)}
       onPress={onPress}
       onLongPress={onLongPress}
