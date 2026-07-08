@@ -5,8 +5,9 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { api } from '../../lib/api';
 import { addDays, fmtDateHeading, fmtNum, localDateString } from '../../lib/format';
 import { useBaby } from '../../lib/hooks';
-import { colors, radius, spacing } from '../../lib/theme';
+import { colors, eventTheme, fonts, radius, spacing } from '../../lib/theme';
 import { Card, Muted, SectionTitle } from '../../components/ui';
+import type { Summary } from '../../lib/types';
 
 export default function Totals() {
   const { baby } = useBaby();
@@ -58,6 +59,23 @@ export default function Totals() {
         </Muted>
       )}
 
+      {(s?.volume_targets.length ?? 0) > 0 && (
+        <>
+          <SectionTitle>Volume targets</SectionTitle>
+          {s!.volume_targets.map((vt) => (
+            <VolumeTargetCard key={`${vt.category}-${vt.direction}`} vt={vt} />
+          ))}
+          {(s?.metabolic_formula_scoops ?? 0) > 0 &&
+            (s?.metabolic_formula_ml ?? 0) === 0 &&
+            s?.volume_targets.some((v) => v.category === 'metabolic_formula') && (
+              <Muted style={{ marginBottom: spacing.md }}>
+                Tip: powder scoops don't count toward ml targets — log the mixed amount
+                with the "GA1 metabolic formula (prepared)" food instead.
+              </Muted>
+            )}
+        </>
+      )}
+
       <SectionTitle>Intake by source</SectionTitle>
       <Card>
         <Row label="Total fed" value={`${fmtNum(s?.total_ml)} ml`} bold />
@@ -92,11 +110,65 @@ export default function Totals() {
       <SectionTitle>Day at a glance</SectionTitle>
       <Card>
         <Row label="Feeds" value={String(s?.feed_count ?? 0)} />
+        <Row
+          label="Pumped (vs breast milk fed)"
+          value={`${fmtNum(s?.pumped_output_ml)} ml / ${fmtNum(s?.pumped_vs_fed.fed_ml)} ml`}
+          color={eventTheme.pumping.color}
+        />
+        <Row
+          label="Diapers"
+          value={`${s?.diapers.changes ?? 0} (💧${s?.diapers.pee ?? 0} · 💩${s?.diapers.poop ?? 0})`}
+          color={eventTheme.diaper.color}
+        />
         <Row label="Spit-ups" value={String(s?.spit_ups.length ?? 0)} />
         <Row label="Vomits" value={String(s?.vomits.length ?? 0)} />
         <Row label="Meds given" value={String(s?.meds.length ?? 0)} />
       </Card>
     </ScrollView>
+  );
+}
+
+const CATEGORY_META: Record<string, { label: string; color: string }> = {
+  breast_milk: { label: 'Breast milk', color: colors.breastMilk },
+  formula: { label: 'Formula', color: colors.formula },
+  metabolic_formula: { label: 'GA1 / metabolic formula', color: colors.metabolic },
+};
+
+function VolumeTargetCard({ vt }: { vt: Summary['volume_targets'][number] }) {
+  const meta = CATEGORY_META[vt.category];
+  const pct = Math.min(100, (100 * vt.actual_ml) / vt.target_ml);
+  const gap = Math.round((vt.target_ml - vt.actual_ml) * 10) / 10;
+  const over = vt.status === 'over';
+  const tail =
+    vt.direction === 'min'
+      ? vt.status === 'met'
+        ? '✓ target met'
+        : `${fmtNum(gap)} ml to go`
+      : over
+        ? `over by ${fmtNum(-gap)} ml`
+        : `${fmtNum(gap)} ml left`;
+  return (
+    <Card style={{ marginBottom: spacing.sm }}>
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
+        <Text style={{ fontFamily: fonts.bold, color: colors.text }}>
+          {meta.label} ({vt.direction === 'min' ? 'min' : 'max'} {fmtNum(vt.target_ml)} ml)
+        </Text>
+        <Text style={{ fontFamily: fonts.bold, color: over ? colors.danger : meta.color }}>
+          {fmtNum(vt.actual_ml)} ml · {tail}
+        </Text>
+      </View>
+      <View style={styles.barTrack}>
+        <View
+          style={[
+            styles.barFill,
+            { width: `${pct}%`, backgroundColor: over ? colors.danger : meta.color },
+          ]}
+        />
+      </View>
+      {vt.estimated_ml > 0 && (
+        <Muted style={{ marginTop: 4 }}>includes ~{fmtNum(vt.estimated_ml)} ml latch estimate</Muted>
+      )}
+    </Card>
   );
 }
 

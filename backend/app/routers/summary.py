@@ -1,4 +1,5 @@
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
@@ -7,7 +8,7 @@ from app.models.summary import Summary
 from app.repo import families
 from app.routers.deps import get_baby_or_404
 from app.services.summary import summarize_window
-from app.services.tz import day_window
+from app.services.tz import day_window, since_local
 
 router = APIRouter(tags=["summary"])
 
@@ -22,14 +23,27 @@ def _family_tz(family_id: str) -> str:
 @router.get("/babies/{baby_id}/summary", response_model=Summary)
 def rolling_summary(
     baby_id: str,
-    hours: int = Query(24, ge=1, le=24 * 14),
+    hours: Optional[int] = Query(None, ge=1, le=24 * 14),
+    since_local_time: Optional[time] = Query(
+        None, description="Window since this local wall-clock time, e.g. 07:00"
+    ),
     user: CurrentUser = Depends(get_current_user),
 ):
-    """The doctor summary: a rolling window ending now (default last 24h)."""
+    """The doctor summary: a rolling window ending now — either the last N
+    hours (default 24) or since a local wall-clock time like 07:00."""
+    if hours is not None and since_local_time is not None:
+        raise HTTPException(422, "Pass either hours or since_local_time, not both")
     baby = get_baby_or_404(user, baby_id)
     tz_name = _family_tz(user.family_id)
     now = datetime.now(timezone.utc)
-    return summarize_window(baby, now - timedelta(hours=hours), now, tz_name)
+
+    if since_local_time is not None:
+        window_from = since_local(since_local_time, tz_name, now)
+        label = f"since {since_local_time.strftime('%-I:%M %p')}"
+    else:
+        window_from = now - timedelta(hours=hours or 24)
+        label = ""
+    return summarize_window(baby, window_from, now, tz_name, window_label=label)
 
 
 @router.get("/babies/{baby_id}/days/{day}", response_model=Summary)

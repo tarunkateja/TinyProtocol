@@ -10,6 +10,8 @@ export interface Food {
   natural_protein_g_per_unit: number;
   lysine_mg_per_unit: number;
   description?: string | null;
+  source_name?: string | null;
+  source_url?: string | null;
   needs_dietitian_verification: boolean;
   archived: boolean;
 }
@@ -23,9 +25,18 @@ export interface MedPreset {
   notes?: string | null;
 }
 
+export type VolumeCategory = 'breast_milk' | 'formula' | 'metabolic_formula';
+
+export interface VolumeTarget {
+  category: VolumeCategory;
+  direction: 'min' | 'max';
+  ml_per_day: number;
+}
+
 export interface Targets {
   lysine_mg_per_day?: number | null;
   natural_protein_g_per_day?: number | null;
+  volume_targets?: VolumeTarget[];
 }
 
 export interface Baby {
@@ -86,8 +97,17 @@ export interface Feed {
   notes?: string | null;
 }
 
-export type EventType = 'spit_up' | 'vomit' | 'fussiness' | 'medication' | 'note';
+export type EventType =
+  | 'spit_up'
+  | 'vomit'
+  | 'fussiness'
+  | 'medication'
+  | 'note'
+  | 'pumping'
+  | 'diaper';
 export type Severity = 'small' | 'medium' | 'large';
+export type PumpSide = 'left' | 'right' | 'both';
+export type DiaperKind = 'pee' | 'poop' | 'both';
 
 export interface CareEvent {
   item_type: 'EVENT';
@@ -100,7 +120,34 @@ export interface CareEvent {
   med_name?: string | null;
   dose_amount?: number | null;
   dose_unit?: DoseUnit | null;
+  pumped_ml?: number | null;
+  side?: PumpSide | null;
+  duration_minutes?: number | null;
+  diaper_kind?: DiaperKind | null;
   note?: string | null;
+}
+
+export interface FeedPreset {
+  id: string;
+  name: string;
+  components: FeedComponentIn[];
+}
+
+export interface ChatMeta {
+  id: string;
+  baby_id: string;
+  title: string;
+  created_by: string;
+  updated_at: string;
+}
+
+export interface ChatFull extends ChatMeta {
+  messages: { role: 'user' | 'assistant'; content: string; at?: string }[];
+}
+
+export interface ChatReply {
+  chat: ChatFull;
+  reply: string;
 }
 
 export type TimelineEntry = Feed | CareEvent;
@@ -131,6 +178,19 @@ export interface Summary {
   targets: Targets;
   pct_of_lysine_target?: number | null;
   pct_of_protein_target?: number | null;
+  volume_targets: {
+    category: VolumeCategory;
+    direction: 'min' | 'max';
+    target_ml: number;
+    actual_ml: number;
+    estimated_ml: number;
+    status: 'under' | 'met' | 'over';
+  }[];
+  pumped_output_ml: number;
+  pumping_sessions: number;
+  pumped_vs_fed: { pumped_ml: number; fed_ml: number; net_ml: number };
+  diapers: { pee: number; poop: number; changes: number };
+  window_label: string;
   feeds: { id: string; occurred_at: string; total_ml: number; description: string }[];
   spit_ups: EventBrief[];
   vomits: EventBrief[];

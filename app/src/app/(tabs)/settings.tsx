@@ -116,6 +116,20 @@ export default function Settings() {
         ))}
       </Card>
 
+      <Button
+        title="＋ Add a food"
+        variant="secondary"
+        onPress={() => router.push({ pathname: '/edit-food' })}
+        style={{ marginBottom: spacing.md }}
+      />
+
+      <SectionTitle>Reminders</SectionTitle>
+      <Button
+        title="⏰ Feed reminders"
+        variant="secondary"
+        onPress={() => router.push('/reminders')}
+      />
+
       <SectionTitle>Family</SectionTitle>
       <Card>
         {meQ.data?.family.members.map((m) => (

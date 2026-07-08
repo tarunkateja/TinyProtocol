@@ -10,7 +10,7 @@ import {
   ViewStyle,
 } from 'react-native';
 
-import { colors, radius, spacing } from '../lib/theme';
+import { colors, fonts, radius, spacing } from '../lib/theme';
 
 export function Card({ children, style }: { children: React.ReactNode; style?: ViewStyle }) {
   return <View style={[styles.card, style]}>{children}</View>;
@@ -74,7 +74,7 @@ export function Chip({
         { backgroundColor: selected ? color : softColor, borderColor: selected ? color : 'transparent' },
       ]}
     >
-      <Text style={{ color: selected ? '#fff' : colors.text, fontWeight: '600', fontSize: 14 }}>
+      <Text style={{ color: selected ? '#fff' : colors.text, fontFamily: fonts.semibold, fontSize: 14 }}>
         {label}
       </Text>
     </Pressable>
@@ -150,7 +150,7 @@ export function SectionTitle({ children }: { children: React.ReactNode }) {
 }
 
 export function Muted({ children, style }: { children: React.ReactNode; style?: object }) {
-  return <Text style={[{ color: colors.muted, fontSize: 13 }, style]}>{children}</Text>;
+  return <Text style={[{ color: colors.muted, fontSize: 13, fontFamily: fonts.regular }, style]}>{children}</Text>;
 }
 
 const styles = StyleSheet.create({
@@ -168,7 +168,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  buttonText: { fontSize: 16, fontWeight: '700' },
+  buttonText: { fontSize: 16, fontFamily: fonts.bold },
   chip: {
     paddingHorizontal: 14,
     paddingVertical: 9,
@@ -177,7 +177,7 @@ const styles = StyleSheet.create({
     marginRight: spacing.sm,
     marginBottom: spacing.sm,
   },
-  fieldLabel: { fontSize: 13, fontWeight: '600', color: colors.muted, marginBottom: 6 },
+  fieldLabel: { fontSize: 13, fontFamily: fonts.semibold, color: colors.muted, marginBottom: 6 },
   inputRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -187,7 +187,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     paddingHorizontal: 12,
   },
-  input: { flex: 1, paddingVertical: 12, fontSize: 16, color: colors.text },
+  input: { flex: 1, paddingVertical: 12, fontSize: 16, color: colors.text, fontFamily: fonts.regular },
   suffix: { color: colors.muted, fontSize: 14, marginLeft: 6 },
   stepperRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   stepBtn: {
@@ -198,10 +198,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  stepBtnText: { fontSize: 22, fontWeight: '700', color: colors.primary },
+  stepBtnText: { fontSize: 22, fontFamily: fonts.bold, color: colors.primary },
   sectionTitle: {
     fontSize: 15,
-    fontWeight: '700',
+    fontFamily: fonts.heavy,
     color: colors.text,
     marginBottom: spacing.sm,
     marginTop: spacing.md,

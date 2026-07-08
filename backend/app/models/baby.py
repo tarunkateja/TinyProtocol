@@ -1,7 +1,18 @@
 from datetime import date, datetime
-from typing import Optional
+from typing import Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
+
+VolumeCategory = Literal["breast_milk", "formula", "metabolic_formula"]
+
+
+class VolumeTarget(BaseModel):
+    """A per-day volume goal for one source, e.g. max 400 ml breast milk or
+    min 120 ml GA1 formula. Only liquid/latch ml count — powder scoops don't."""
+
+    category: VolumeCategory
+    direction: Literal["min", "max"]
+    ml_per_day: float = Field(gt=0)
 
 
 class Targets(BaseModel):
@@ -9,6 +20,21 @@ class Targets(BaseModel):
 
     lysine_mg_per_day: Optional[float] = Field(None, gt=0)
     natural_protein_g_per_day: Optional[float] = Field(None, gt=0)
+    volume_targets: list[VolumeTarget] = Field(default_factory=list, max_length=6)
+
+    @model_validator(mode="after")
+    def _check_volume_targets(self) -> "Targets":
+        seen: dict[tuple[str, str], float] = {}
+        for t in self.volume_targets:
+            key = (t.category, t.direction)
+            if key in seen:
+                raise ValueError(f"duplicate volume target for {t.category} {t.direction}")
+            seen[key] = t.ml_per_day
+        for cat in {t.category for t in self.volume_targets}:
+            lo, hi = seen.get((cat, "min")), seen.get((cat, "max"))
+            if lo is not None and hi is not None and lo > hi:
+                raise ValueError(f"{cat}: min target exceeds max target")
+        return self
 
 
 class BabyIn(BaseModel):

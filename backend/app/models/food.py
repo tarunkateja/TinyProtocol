@@ -17,6 +17,10 @@ class FoodIn(BaseModel):
     natural_protein_g_per_unit: float = Field(0, ge=0)
     lysine_mg_per_unit: float = Field(0, ge=0)
     description: Optional[str] = None
+    # Where the nutrition values come from (e.g. USDA FoodData Central, a
+    # manufacturer label). Shown in the app so parents can verify.
+    source_name: Optional[str] = None
+    source_url: Optional[str] = None
     # Seeded values are estimates — a dietitian must confirm before trusting totals.
     needs_dietitian_verification: bool = True
 
@@ -26,6 +30,8 @@ class FoodUpdate(BaseModel):
     natural_protein_g_per_unit: Optional[float] = Field(None, ge=0)
     lysine_mg_per_unit: Optional[float] = Field(None, ge=0)
     description: Optional[str] = None
+    source_name: Optional[str] = None
+    source_url: Optional[str] = None
     needs_dietitian_verification: Optional[bool] = None
     archived: Optional[bool] = None
 

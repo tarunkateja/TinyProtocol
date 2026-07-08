@@ -11,6 +11,7 @@ from app.routers import (
     family,
     feeds,
     foods,
+    presets,
     summary,
     timeline,
 )
@@ -28,7 +29,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-for module in (auth, family, babies, foods, feeds, events, timeline, summary, assistant):
+for module in (
+    auth, family, babies, foods, feeds, events, timeline, summary, assistant, presets,
+):
     app.include_router(module.router, prefix="/v1")
 
 

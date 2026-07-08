@@ -38,7 +38,9 @@ def update_baby(
     baby_id: str, body: BabyUpdate, user: CurrentUser = Depends(get_current_user)
 ):
     baby = get_baby_or_404(user, baby_id)
-    updated = baby.model_copy(update=body.model_dump(exclude_unset=True))
+    updated = Baby.model_validate(
+        {**baby.model_dump(), **body.model_dump(exclude_unset=True)}
+    )
     family_items.put(
         user.family_id, keys.baby_sk(baby.id), updated.model_dump(mode="json")
     )

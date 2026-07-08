@@ -8,10 +8,14 @@ from app.models.event import Event
 from app.models.feed import Feed, FeedComponentOut
 from app.models.summary import (
     BreastMilkBreakdown,
+    DiaperBrief,
     EventBrief,
     FeedBrief,
     MedGiven,
+    PumpedVsFed,
+    PumpingBrief,
     Summary,
+    VolumeTargetEval,
 )
 from app.services.tz import to_local
 
@@ -22,6 +26,7 @@ def summarize_window(
     window_to: datetime,
     tz_name: str,
     day: date | None = None,
+    window_label: str = "",
 ) -> Summary:
     """Query the timeline and aggregate it — shared by the summary endpoints
     and the AI assistant's tools."""
@@ -38,7 +43,10 @@ def summarize_window(
         for i in items
         if i.get("item_type") == keys.LOG_TYPE_EVENT
     ]
-    return build_summary(baby, feeds, events, window_from, window_to, tz_name, day=day)
+    return build_summary(
+        baby, feeds, events, window_from, window_to, tz_name,
+        day=day, window_label=window_label,
+    )
 
 
 def build_summary(
@@ -49,7 +57,15 @@ def build_summary(
     window_to: datetime,
     tz_name: str,
     day: date | None = None,
+    window_label: str = "",
 ) -> Summary:
+    if not window_label:
+        if day:
+            window_label = to_local(window_from, tz_name).strftime("%a %b %-d")
+        else:
+            hours = round((window_to - window_from).total_seconds() / 3600)
+            window_label = f"last {hours}h"
+
     s = Summary(
         baby_id=baby.id,
         baby_name=baby.name,
@@ -58,6 +74,7 @@ def build_summary(
         day=day,
         targets=baby.targets,
         breast_milk=BreastMilkBreakdown(),
+        window_label=window_label,
     )
 
     for feed in sorted(feeds, key=lambda f: f.occurred_at):
@@ -94,16 +111,28 @@ def build_summary(
         )
 
     for ev in sorted(events, key=lambda e: e.occurred_at):
-        brief = EventBrief(
-            id=ev.id, occurred_at=ev.occurred_at, type=ev.type,
-            severity=ev.severity, note=ev.note,
-        )
-        if ev.type == "spit_up":
-            s.spit_ups.append(brief)
-        elif ev.type == "vomit":
-            s.vomits.append(brief)
-        elif ev.type == "fussiness":
-            s.fussiness.append(brief)
+        if ev.type == "pumping":
+            s.pumping_sessions += 1
+            s.pumped_output_ml = round(s.pumped_output_ml + (ev.pumped_ml or 0), 1)
+            s.pumpings.append(
+                PumpingBrief(
+                    id=ev.id, occurred_at=ev.occurred_at,
+                    pumped_ml=ev.pumped_ml or 0, side=ev.side,
+                    duration_minutes=ev.duration_minutes,
+                )
+            )
+        elif ev.type == "diaper":
+            s.diapers.changes += 1
+            if ev.diaper_kind in ("pee", "both"):
+                s.diapers.pee += 1
+            if ev.diaper_kind in ("poop", "both"):
+                s.diapers.poop += 1
+            s.diaper_events.append(
+                DiaperBrief(
+                    id=ev.id, occurred_at=ev.occurred_at,
+                    diaper_kind=ev.diaper_kind or "pee", note=ev.note,
+                )
+            )
         elif ev.type == "medication":
             s.meds.append(
                 MedGiven(
@@ -112,13 +141,54 @@ def build_summary(
                 )
             )
         else:
-            s.notes.append(brief)
+            brief = EventBrief(
+                id=ev.id, occurred_at=ev.occurred_at, type=ev.type,
+                severity=ev.severity, note=ev.note,
+            )
+            if ev.type == "spit_up":
+                s.spit_ups.append(brief)
+            elif ev.type == "vomit":
+                s.vomits.append(brief)
+            elif ev.type == "fussiness":
+                s.fussiness.append(brief)
+            else:
+                s.notes.append(brief)
+
+    s.pumped_vs_fed = PumpedVsFed(
+        pumped_ml=s.pumped_output_ml,
+        fed_ml=s.breast_milk.total_ml,
+        net_ml=round(s.pumped_output_ml - s.breast_milk.total_ml, 1),
+    )
 
     if s.targets.lysine_mg_per_day:
         s.pct_of_lysine_target = round(100 * s.lysine_mg / s.targets.lysine_mg_per_day, 1)
     if s.targets.natural_protein_g_per_day:
         s.pct_of_protein_target = round(
             100 * s.natural_protein_g / s.targets.natural_protein_g_per_day, 1
+        )
+
+    actual_by_category = {
+        "breast_milk": s.breast_milk.total_ml,
+        "formula": s.formula_ml,
+        "metabolic_formula": s.metabolic_formula_ml,
+    }
+    for vt in s.targets.volume_targets:
+        actual = actual_by_category[vt.category]
+        if vt.direction == "min":
+            status = "met" if actual >= vt.ml_per_day else "under"
+        else:
+            status = "met" if actual <= vt.ml_per_day else "over"
+        s.volume_targets.append(
+            VolumeTargetEval(
+                category=vt.category,
+                direction=vt.direction,
+                target_ml=vt.ml_per_day,
+                actual_ml=actual,
+                estimated_ml=(
+                    s.breast_milk.latch_estimated_ml if vt.category == "breast_milk" else 0
+                ),
+                status=status,
+            )
         )
 
     s.summary_text = render_text(s, tz_name)
@@ -140,15 +210,17 @@ def describe_components(components: list[FeedComponentOut]) -> str:
     return " + ".join(parts)
 
 
+_CATEGORY_LABEL = {
+    "breast_milk": "Breast milk",
+    "formula": "Formula",
+    "metabolic_formula": "Metabolic formula",
+}
+
+
 def render_text(s: Summary, tz_name: str) -> str:
     lines: list[str] = []
-    if s.day:
-        header = to_local(s.window_from, tz_name).strftime("%a %b %-d")
-        lines.append(f"{s.baby_name} — {header}")
-    else:
-        hours = round((s.window_to - s.window_from).total_seconds() / 3600)
-        as_of = to_local(s.window_to, tz_name).strftime("%b %-d, %-I:%M %p")
-        lines.append(f"{s.baby_name} — last {hours}h (as of {as_of})")
+    as_of = to_local(s.window_to, tz_name).strftime("%b %-d, %-I:%M %p")
+    lines.append(f"{s.baby_name} — {s.window_label} (as of {as_of})")
 
     lines.append(f"Feeds: {s.feed_count} · total {_num(s.total_ml)} ml")
     bm = s.breast_milk
@@ -174,6 +246,26 @@ def render_text(s: Summary, tz_name: str) -> str:
                               s.targets.natural_protein_g_per_day, s.pct_of_protein_target))
     lines.append(_target_line("Lysine", s.lysine_mg, "mg",
                               s.targets.lysine_mg_per_day, s.pct_of_lysine_target))
+
+    for vt in s.volume_targets:
+        label = _CATEGORY_LABEL[vt.category]
+        gap = round(vt.target_ml - vt.actual_ml, 1)
+        if vt.direction == "min":
+            tail = "target met" if vt.status == "met" else f"{_num(gap)} to go"
+            lines.append(f"{label}: {_num(vt.actual_ml)} ml of min {_num(vt.target_ml)} ({tail})")
+        else:
+            tail = f"over by {_num(-gap)}" if vt.status == "over" else f"{_num(gap)} left"
+            lines.append(f"{label}: {_num(vt.actual_ml)} ml of max {_num(vt.target_ml)} ({tail})")
+
+    if s.pumping_sessions:
+        lines.append(
+            f"Pumped: {_num(s.pumped_output_ml)} ml ({s.pumping_sessions} sessions) · "
+            f"breast milk fed {_num(s.pumped_vs_fed.fed_ml)} ml this window"
+        )
+    if s.diapers.changes:
+        lines.append(
+            f"Diapers: {s.diapers.changes} (pee {s.diapers.pee} · poop {s.diapers.poop})"
+        )
 
     if s.meds:
         by_med: dict[str, list[str]] = {}

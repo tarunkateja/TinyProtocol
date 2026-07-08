@@ -8,15 +8,24 @@ import { useBaby } from '../../lib/hooks';
 import { colors, radius, spacing } from '../../lib/theme';
 import { Button, Card, Chip, Muted } from '../../components/ui';
 
-const WINDOWS = [12, 24, 48];
+type Window = { label: string; hours?: number; since?: string };
+
+const WINDOWS: Window[] = [
+  { label: 'Since 7 AM', since: '07:00' },
+  { label: 'Since 8 AM', since: '08:00' },
+  { label: '12h', hours: 12 },
+  { label: '24h', hours: 24 },
+  { label: '48h', hours: 48 },
+];
 
 export default function SummaryScreen() {
   const { baby } = useBaby();
-  const [hours, setHours] = useState(24);
+  const [win, setWin] = useState<Window>(WINDOWS[3]); // 24h default
 
   const q = useQuery({
-    queryKey: ['summary', baby?.id, hours],
-    queryFn: () => api.rollingSummary(baby!.id, hours),
+    queryKey: ['summary', baby?.id, win.label],
+    queryFn: () =>
+      api.rollingSummary(baby!.id, { hours: win.hours, sinceLocalTime: win.since }),
     enabled: !!baby,
     refetchOnMount: 'always',
   });
@@ -27,9 +36,14 @@ export default function SummaryScreen() {
       <Muted style={{ marginBottom: spacing.sm }}>
         A clean rundown to show or text your care team.
       </Muted>
-      <View style={{ flexDirection: 'row', marginBottom: spacing.md }}>
-        {WINDOWS.map((h) => (
-          <Chip key={h} label={`Last ${h}h`} selected={hours === h} onPress={() => setHours(h)} />
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginBottom: spacing.sm }}>
+        {WINDOWS.map((w) => (
+          <Chip
+            key={w.label}
+            label={w.label}
+            selected={win.label === w.label}
+            onPress={() => setWin(w)}
+          />
         ))}
       </View>
 

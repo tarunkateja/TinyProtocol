@@ -1,18 +1,59 @@
 from datetime import date, datetime
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel
 
-from app.models.baby import Targets
-from app.models.event import EventType, Severity
+from app.models.baby import Targets, VolumeCategory
+from app.models.event import DiaperKind, EventType, PumpSide, Severity
 from app.models.food import DoseUnit
 
 
 class BreastMilkBreakdown(BaseModel):
+    # NOTE: pumped_ml here means pumped milk FED by bottle in this window —
+    # pumping *output* is Summary.pumped_output_ml.
     pumped_ml: float = 0
     latch_estimated_ml: float = 0
     latch_measured_ml: float = 0
     total_ml: float = 0
+
+
+class PumpedVsFed(BaseModel):
+    """Window-scoped flow, not stash inventory: milk pumped today is often
+    fed tomorrow."""
+
+    pumped_ml: float = 0
+    fed_ml: float = 0
+    net_ml: float = 0
+
+
+class DiaperCounts(BaseModel):
+    pee: int = 0  # 'both' increments pee AND poop
+    poop: int = 0
+    changes: int = 0
+
+
+class PumpingBrief(BaseModel):
+    id: str
+    occurred_at: datetime
+    pumped_ml: float
+    side: Optional[PumpSide] = None
+    duration_minutes: Optional[float] = None
+
+
+class DiaperBrief(BaseModel):
+    id: str
+    occurred_at: datetime
+    diaper_kind: DiaperKind
+    note: Optional[str] = None
+
+
+class VolumeTargetEval(BaseModel):
+    category: VolumeCategory
+    direction: Literal["min", "max"]
+    target_ml: float
+    actual_ml: float
+    estimated_ml: float = 0  # the latch-estimate share of actual_ml
+    status: Literal["under", "met", "over"]
 
 
 class FeedBrief(BaseModel):
@@ -60,13 +101,23 @@ class Summary(BaseModel):
     targets: Targets = Targets()
     pct_of_lysine_target: Optional[float] = None
     pct_of_protein_target: Optional[float] = None
+    volume_targets: list[VolumeTargetEval] = []
+
+    pumped_output_ml: float = 0
+    pumping_sessions: int = 0
+    pumped_vs_fed: PumpedVsFed = PumpedVsFed()
+    diapers: DiaperCounts = DiaperCounts()
 
     feeds: list[FeedBrief] = []
+    pumpings: list[PumpingBrief] = []
+    diaper_events: list[DiaperBrief] = []
     spit_ups: list[EventBrief] = []
     vomits: list[EventBrief] = []
     fussiness: list[EventBrief] = []
     meds: list[MedGiven] = []
     notes: list[EventBrief] = []
+    # Human label for the window, e.g. "last 24h" or "since 7:00 AM".
+    window_label: str = ""
 
     # Server-rendered shareable text (times in the family's timezone).
     summary_text: str = ""

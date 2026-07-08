@@ -1,33 +1,35 @@
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
 import React, { useMemo, useState } from 'react';
-import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { api } from '../lib/api';
 import { fmtNum } from '../lib/format';
 import { useBaby, useFoods, useInvalidateLogs } from '../lib/hooks';
-import { colors, spacing } from '../lib/theme';
-import type { Feed, FeedComponentIn, Food } from '../lib/types';
+import { colors, eventTheme, fonts, radius, spacing } from '../lib/theme';
+import type { Feed, FeedComponentIn, FeedPreset, Food } from '../lib/types';
 import { Button, Card, Chip, Field, Muted, SectionTitle, Stepper } from '../components/ui';
+import { SessionTimer } from '../components/SessionTimer';
 import { TimePickerRow } from '../components/TimePickerRow';
 
 type Mode = 'bottle' | 'latch';
 
 export default function LogFeed() {
   const router = useRouter();
+  const qc = useQueryClient();
   const { baby } = useBaby();
   const { foods } = useFoods();
   const invalidate = useInvalidateLogs();
+  const presetsQ = useQuery({ queryKey: ['feedPresets'], queryFn: api.listFeedPresets });
 
   const [mode, setMode] = useState<Mode>('bottle');
   const [when, setWhen] = useState(new Date());
   const [notes, setNotes] = useState('');
   const [busy, setBusy] = useState(false);
 
-  // Bottle state: ml per liquid food, scoops per powder food.
   const [liquidMl, setLiquidMl] = useState<Record<string, number>>({});
   const [powderScoops, setPowderScoops] = useState<Record<string, number>>({});
 
-  // Latch state.
   const [minutes, setMinutes] = useState(10);
   const [rate, setRate] = useState<number | null>(null);
   const [measuredMl, setMeasuredMl] = useState(0);
@@ -53,15 +55,13 @@ export default function LogFeed() {
     }
     const out: FeedComponentIn[] = [];
     for (const f of liquids)
-      if (liquidMl[f.id] > 0)
-        out.push({ kind: 'liquid', food_id: f.id, volume_ml: liquidMl[f.id] });
+      if (liquidMl[f.id] > 0) out.push({ kind: 'liquid', food_id: f.id, volume_ml: liquidMl[f.id] });
     for (const f of powders)
       if (powderScoops[f.id] > 0)
         out.push({ kind: 'powder', food_id: f.id, scoops: powderScoops[f.id] });
     return out;
   }, [mode, liquids, powders, liquidMl, powderScoops, minutes, effectiveRate, measuredMl, breastMilkFood]);
 
-  // Live nutrition preview using the same math as the server.
   const preview = useMemo(() => {
     let ml = 0, protein = 0, lysine = 0;
     const byId = new Map(foods.map((f) => [f.id, f]));
@@ -78,6 +78,59 @@ export default function LogFeed() {
     }
     return { ml, protein, lysine };
   }, [components, foods]);
+
+  const applyPreset = (preset: FeedPreset) => {
+    setMode('bottle');
+    const liquid: Record<string, number> = {};
+    const powder: Record<string, number> = {};
+    for (const c of preset.components) {
+      if (c.kind === 'liquid') liquid[c.food_id] = c.volume_ml;
+      if (c.kind === 'powder') powder[c.food_id] = c.scoops;
+    }
+    setLiquidMl(liquid);
+    setPowderScoops(powder);
+  };
+
+  const savePreset = () => {
+    const comps = components.filter((c) => c.kind !== 'latch');
+    if (comps.length === 0) return;
+    const byId = new Map(foods.map((f) => [f.id, f]));
+    const defaultName = comps
+      .map((c) =>
+        c.kind === 'liquid'
+          ? `${fmtNum(c.volume_ml)} ${byId.get(c.food_id)?.name ?? ''}`
+          : `${fmtNum(c.scoops)} scoop ${byId.get(c.food_id)?.name ?? ''}`,
+      )
+      .join(' + ');
+    Alert.prompt(
+      'Save preset',
+      'Name this mix so you can log it in one tap.',
+      async (name) => {
+        try {
+          await api.createFeedPreset({ name: name?.trim() || defaultName, components: comps });
+          qc.invalidateQueries({ queryKey: ['feedPresets'] });
+        } catch (e: any) {
+          Alert.alert('Could not save preset', e.message);
+        }
+      },
+      'plain-text',
+      defaultName,
+    );
+  };
+
+  const deletePreset = (preset: FeedPreset) => {
+    Alert.alert(`Delete preset "${preset.name}"?`, undefined, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: async () => {
+          await api.deleteFeedPreset(preset.id);
+          qc.invalidateQueries({ queryKey: ['feedPresets'] });
+        },
+      },
+    ]);
+  };
 
   const save = async () => {
     if (!baby || components.length === 0) return;
@@ -96,19 +149,35 @@ export default function LogFeed() {
     }
   };
 
+  const feedColor = eventTheme.feed.color;
+
   return (
     <ScrollView
       style={{ backgroundColor: colors.bg }}
       contentContainerStyle={{ padding: spacing.lg, paddingBottom: 60 }}
       keyboardShouldPersistTaps="handled"
     >
-      <View style={{ flexDirection: 'row', marginBottom: spacing.md }}>
-        <Chip label="🍼 Bottle" selected={mode === 'bottle'} onPress={() => setMode('bottle')} />
-        <Chip label="🤱 Latch" selected={mode === 'latch'} onPress={() => setMode('latch')} />
+      <View style={{ flexDirection: 'row', marginBottom: spacing.sm }}>
+        <Chip label="🍼 Bottle" selected={mode === 'bottle'} onPress={() => setMode('bottle')} color={feedColor} softColor={eventTheme.feed.soft} />
+        <Chip label="🤱 Latch" selected={mode === 'latch'} onPress={() => setMode('latch')} color={feedColor} softColor={eventTheme.feed.soft} />
       </View>
 
       {mode === 'bottle' ? (
         <>
+          {(presetsQ.data?.length ?? 0) > 0 && (
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginBottom: spacing.xs }}>
+              {presetsQ.data!.map((p) => (
+                <Pressable
+                  key={p.id}
+                  style={styles.presetChip}
+                  onPress={() => applyPreset(p)}
+                  onLongPress={() => deletePreset(p)}
+                >
+                  <Text style={styles.presetText}>⚡ {p.name}</Text>
+                </Pressable>
+              ))}
+            </View>
+          )}
           <SectionTitle>What's in the bottle?</SectionTitle>
           {liquids.map((f) => (
             <FoodAmountRow
@@ -131,10 +200,17 @@ export default function LogFeed() {
               onChange={(v) => setPowderScoops((s) => ({ ...s, [f.id]: v }))}
             />
           ))}
+          {components.length > 0 && (
+            <Pressable onPress={savePreset}>
+              <Text style={styles.saveMix}>💾 Save this mix as a preset</Text>
+            </Pressable>
+          )}
         </>
       ) : (
         <Card>
-          <Text style={styles.fieldLabel}>Minutes latched</Text>
+          <Text style={styles.fieldLabel}>Timer (or type minutes below)</Text>
+          <SessionTimer onMinutes={setMinutes} color={feedColor} />
+          <Text style={[styles.fieldLabel, { marginTop: spacing.md }]}>Minutes latched</Text>
           <Stepper value={minutes} onChange={setMinutes} step={5} suffix="min" />
           <Text style={[styles.fieldLabel, { marginTop: spacing.md }]}>
             Est. intake rate (ml per 10 min)
@@ -144,7 +220,7 @@ export default function LogFeed() {
             Weighed amount (optional — overrides the estimate)
           </Text>
           <Stepper value={measuredMl} onChange={setMeasuredMl} step={5} suffix="ml" />
-          <Text style={styles.latchEstimate}>
+          <Text style={[styles.latchEstimate, { color: feedColor }]}>
             {measuredMl > 0 ? 'Weighed' : 'Estimated'}: {fmtNum(latchEstimate)} ml
           </Text>
         </Card>
@@ -155,16 +231,10 @@ export default function LogFeed() {
 
       {components.length > 0 && (
         <Muted style={{ marginBottom: spacing.md, textAlign: 'center' }}>
-          {fmtNum(preview.ml)} ml · {fmtNum(preview.protein, 2)} g protein ·{' '}
-          {fmtNum(preview.lysine)} mg lysine
+          {fmtNum(preview.ml)} ml · {fmtNum(preview.protein, 2)} g protein · {fmtNum(preview.lysine)} mg lysine
         </Muted>
       )}
-      <Button
-        title="Save feed"
-        onPress={save}
-        loading={busy}
-        disabled={components.length === 0}
-      />
+      <Button title="Save feed" onPress={save} loading={busy} disabled={components.length === 0} />
     </ScrollView>
   );
 }
@@ -201,15 +271,32 @@ function FoodAmountRow({
 }
 
 const styles = StyleSheet.create({
-  fieldLabel: { fontSize: 13, fontWeight: '600', color: colors.muted, marginBottom: 6 },
-  foodName: { fontSize: 15, fontWeight: '700', color: colors.text },
+  fieldLabel: { fontSize: 13, fontFamily: fonts.semibold, color: colors.muted, marginBottom: 6 },
+  foodName: { fontSize: 15, fontFamily: fonts.bold, color: colors.text },
   verify: { color: colors.metabolic, fontSize: 13 },
   dot: { width: 10, height: 10, borderRadius: 5, marginRight: 8 },
   latchEstimate: {
     marginTop: spacing.md,
     fontSize: 17,
-    fontWeight: '800',
-    color: colors.primary,
+    fontFamily: fonts.heavy,
     textAlign: 'center',
+  },
+  presetChip: {
+    backgroundColor: eventTheme.feed.soft,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: eventTheme.feed.color,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    marginRight: spacing.sm,
+    marginBottom: spacing.sm,
+  },
+  presetText: { color: colors.text, fontFamily: fonts.bold, fontSize: 14 },
+  saveMix: {
+    color: colors.primary,
+    fontFamily: fonts.bold,
+    fontSize: 14,
+    marginTop: spacing.xs,
+    marginBottom: spacing.sm,
   },
 });

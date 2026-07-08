@@ -15,3 +15,16 @@ def day_window(day: date, tz_name: str) -> tuple[datetime, datetime]:
 
 def to_local(dt: datetime, tz_name: str) -> datetime:
     return dt.astimezone(ZoneInfo(tz_name))
+
+
+def since_local(wall_time: time, tz_name: str, now: datetime) -> datetime:
+    """UTC instant of the most recent occurrence of a local wall-clock time
+    (today if already passed, else yesterday)."""
+    tz = ZoneInfo(tz_name)
+    local_now = now.astimezone(tz)
+    candidate = datetime.combine(local_now.date(), wall_time, tzinfo=tz)
+    if candidate > local_now:
+        candidate = datetime.combine(
+            local_now.date() - timedelta(days=1), wall_time, tzinfo=tz
+        )
+    return candidate.astimezone(timezone.utc)

@@ -21,6 +21,10 @@ def get(family_id: str, sk: str) -> dict | None:
     return from_item(item) if item else None
 
 
+def delete(family_id: str, sk: str) -> None:
+    get_table().delete_item(Key={"PK": keys.family_pk(family_id), "SK": sk})
+
+
 def list_by_prefix(family_id: str, sk_prefix: str) -> list[dict]:
     resp = get_table().query(
         KeyConditionExpression=Key("PK").eq(keys.family_pk(family_id))

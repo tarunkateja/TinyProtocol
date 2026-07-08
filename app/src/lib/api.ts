@@ -3,9 +3,13 @@ import * as SecureStore from 'expo-secure-store';
 import type {
   Baby,
   CareEvent,
+  ChatFull,
+  ChatMeta,
+  ChatReply,
   Family,
   Feed,
   FeedComponentIn,
+  FeedPreset,
   Food,
   MedPreset,
   Summary,
@@ -101,8 +105,15 @@ export const api = {
 
   // foods
   listFoods: () => get<Food[]>('/foods'),
+  createFood: (body: Partial<Food>) => post<Food>('/foods', body),
   updateFood: (id: string, body: Partial<Food>) => patch<Food>(`/foods/${id}`, body),
   listMedPresets: () => get<MedPreset[]>('/med-presets'),
+
+  // feed presets
+  listFeedPresets: () => get<FeedPreset[]>('/feed-presets'),
+  createFeedPreset: (body: { name: string; components: FeedComponentIn[] }) =>
+    post<FeedPreset>('/feed-presets', body),
+  deleteFeedPreset: (id: string) => del<void>(`/feed-presets/${id}`),
 
   // feeds & events
   createFeed: (
@@ -114,11 +125,14 @@ export const api = {
     post<CareEvent>(`/babies/${babyId}/events`, body),
   deleteEvent: (id: string) => del<void>(`/events/${id}`),
 
-  // assistant
-  assistantChat: (
-    babyId: string,
-    messages: { role: 'user' | 'assistant'; content: string }[],
-  ) => post<{ reply: string }>(`/babies/${babyId}/assistant/chat`, { messages }),
+  // assistant — shared family chat sessions
+  listChats: () => get<ChatMeta[]>('/assistant/chats'),
+  getChat: (id: string) => get<ChatFull>(`/assistant/chats/${id}`),
+  deleteChat: (id: string) => del<void>(`/assistant/chats/${id}`),
+  createChat: (babyId: string, content: string) =>
+    post<ChatReply>(`/babies/${babyId}/assistant/chats`, { content }),
+  sendChatMessage: (chatId: string, content: string) =>
+    post<ChatReply>(`/assistant/chats/${chatId}/messages`, { content }),
 
   // reads
   timeline: (babyId: string, params?: { from?: string; to?: string; cursor?: string }) => {
@@ -133,6 +147,11 @@ export const api = {
   },
   daySummary: (babyId: string, day: string) =>
     get<Summary>(`/babies/${babyId}/days/${day}`),
-  rollingSummary: (babyId: string, hours: number) =>
-    get<Summary>(`/babies/${babyId}/summary?hours=${hours}`),
+  rollingSummary: (babyId: string, window: { hours?: number; sinceLocalTime?: string }) =>
+    get<Summary>(
+      `/babies/${babyId}/summary?` +
+        (window.sinceLocalTime
+          ? `since_local_time=${window.sinceLocalTime}`
+          : `hours=${window.hours ?? 24}`),
+    ),
 };

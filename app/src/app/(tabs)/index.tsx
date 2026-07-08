@@ -14,17 +14,9 @@ import {
 import { api } from '../../lib/api';
 import { fmtNum, fmtTime, localDateString } from '../../lib/format';
 import { useBaby, useInvalidateLogs } from '../../lib/hooks';
-import { colors, radius, spacing } from '../../lib/theme';
+import { colors, eventTheme, fonts, radius, spacing } from '../../lib/theme';
 import type { CareEvent, Feed, TimelineEntry } from '../../lib/types';
 import { Button, Card, Field, Muted } from '../../components/ui';
-
-const EVENT_META: Record<string, { icon: string; label: string }> = {
-  spit_up: { icon: '💧', label: 'Spit-up' },
-  vomit: { icon: '🤮', label: 'Vomit' },
-  fussiness: { icon: '😾', label: 'Fussy' },
-  medication: { icon: '💊', label: 'Medication' },
-  note: { icon: '📝', label: 'Note' },
-};
 
 export default function Today() {
   const router = useRouter();
@@ -50,7 +42,7 @@ export default function Today() {
 
   const confirmDelete = (entry: TimelineEntry) => {
     const isFeed = entry.item_type === 'FEED';
-    Alert.alert(`Delete this ${isFeed ? 'feed' : 'event'}?`, 'This cannot be undone.', [
+    Alert.alert(`Delete this ${isFeed ? 'feed' : 'entry'}?`, 'This cannot be undone.', [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Delete',
@@ -84,7 +76,7 @@ export default function Today() {
             <Stat
               label="breast milk"
               value={`${fmtNum(s?.breast_milk.total_ml)} ml`}
-              color={colors.breastMilk}
+              color={eventTheme.feed.color}
             />
             <Stat
               label="lysine"
@@ -112,11 +104,7 @@ export default function Today() {
         }
       />
       <View style={styles.fabRow}>
-        <Button
-          title="＋ Feed"
-          onPress={() => router.push('/log-feed')}
-          style={{ flex: 1 }}
-        />
+        <Button title="＋ Feed" onPress={() => router.push('/log-feed')} style={{ flex: 1 }} />
         <Button
           title="＋ Event"
           onPress={() => router.push('/log-event')}
@@ -147,6 +135,37 @@ function Stat({
   );
 }
 
+function EntryCard({
+  theme,
+  title,
+  time,
+  onLongPress,
+  children,
+}: {
+  theme: { color: string; soft: string; icon: string };
+  title: string;
+  time: string;
+  onLongPress: () => void;
+  children?: React.ReactNode;
+}) {
+  return (
+    <Pressable onLongPress={onLongPress}>
+      <View style={[styles.entry, { borderLeftColor: theme.color }]}>
+        <View style={[styles.iconChip, { backgroundColor: theme.soft }]}>
+          <Text style={{ fontSize: 17 }}>{theme.icon}</Text>
+        </View>
+        <View style={{ flex: 1 }}>
+          <View style={styles.rowTop}>
+            <Text style={[styles.rowTitle, { color: theme.color }]}>{title}</Text>
+            <Muted>{time}</Muted>
+          </View>
+          {children}
+        </View>
+      </View>
+    </Pressable>
+  );
+}
+
 function FeedRow({ feed, onLongPress }: { feed: Feed; onLongPress: () => void }) {
   const desc = feed.components
     .map((c) => {
@@ -156,44 +175,48 @@ function FeedRow({ feed, onLongPress }: { feed: Feed; onLongPress: () => void })
     })
     .join(' + ');
   return (
-    <Pressable onLongPress={onLongPress}>
-      <Card style={{ marginBottom: spacing.sm }}>
-        <View style={styles.rowTop}>
-          <Text style={styles.rowTitle}>🍼 {fmtNum(feed.totals.total_ml)} ml</Text>
-          <Muted>{fmtTime(feed.occurred_at)}</Muted>
-        </View>
-        <Text style={styles.rowDesc}>{desc}</Text>
-        {feed.totals.lysine_mg > 0 && (
-          <Muted style={{ marginTop: 4 }}>
-            {fmtNum(feed.totals.natural_protein_g, 2)} g protein · {fmtNum(feed.totals.lysine_mg)} mg lysine
-          </Muted>
-        )}
-        {feed.notes ? <Muted style={{ marginTop: 4 }}>{feed.notes}</Muted> : null}
-      </Card>
-    </Pressable>
+    <EntryCard
+      theme={eventTheme.feed}
+      title={`${fmtNum(feed.totals.total_ml)} ml feed`}
+      time={fmtTime(feed.occurred_at)}
+      onLongPress={onLongPress}
+    >
+      <Text style={styles.rowDesc}>{desc}</Text>
+      {feed.totals.lysine_mg > 0 && (
+        <Muted style={{ marginTop: 2 }}>
+          {fmtNum(feed.totals.natural_protein_g, 2)} g protein · {fmtNum(feed.totals.lysine_mg)} mg lysine
+        </Muted>
+      )}
+      {feed.notes ? <Muted style={{ marginTop: 2 }}>{feed.notes}</Muted> : null}
+    </EntryCard>
   );
 }
 
 function EventRow({ event, onLongPress }: { event: CareEvent; onLongPress: () => void }) {
-  const meta = EVENT_META[event.type] ?? EVENT_META.note;
-  const bits = [
-    event.severity,
-    event.med_name,
-    event.dose_amount ? `${fmtNum(event.dose_amount)} ${event.dose_unit ?? ''}` : null,
-    event.note,
-  ].filter(Boolean);
+  const theme = eventTheme[event.type] ?? eventTheme.note;
+  let title = theme.label;
+  const bits: string[] = [];
+  if (event.type === 'pumping') {
+    title = `Pumped ${fmtNum(event.pumped_ml)} ml`;
+    if (event.side) bits.push(event.side);
+    if (event.duration_minutes) bits.push(`${fmtNum(event.duration_minutes)} min`);
+  } else if (event.type === 'diaper') {
+    title = `Diaper — ${event.diaper_kind === 'both' ? 'pee + poop' : event.diaper_kind}`;
+  } else {
+    if (event.severity) bits.push(event.severity);
+    if (event.med_name) bits.push(event.med_name);
+    if (event.dose_amount) bits.push(`${fmtNum(event.dose_amount)} ${event.dose_unit ?? ''}`);
+  }
+  if (event.note) bits.push(event.note);
   return (
-    <Pressable onLongPress={onLongPress}>
-      <Card style={{ marginBottom: spacing.sm, backgroundColor: colors.eventSoft }}>
-        <View style={styles.rowTop}>
-          <Text style={styles.rowTitle}>
-            {meta.icon} {meta.label}
-          </Text>
-          <Muted>{fmtTime(event.occurred_at)}</Muted>
-        </View>
-        {bits.length > 0 && <Text style={styles.rowDesc}>{bits.join(' · ')}</Text>}
-      </Card>
-    </Pressable>
+    <EntryCard
+      theme={theme}
+      title={title}
+      time={fmtTime(event.occurred_at)}
+      onLongPress={onLongPress}
+    >
+      {bits.length > 0 && <Text style={styles.rowDesc}>{bits.join(' · ')}</Text>}
+    </EntryCard>
   );
 }
 
@@ -238,10 +261,30 @@ const styles = StyleSheet.create({
     padding: spacing.md,
     alignItems: 'center',
   },
-  statValue: { fontSize: 17, fontWeight: '800' },
+  statValue: { fontSize: 17, fontFamily: fonts.heavy },
+  entry: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.md,
+    backgroundColor: colors.card,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderLeftWidth: 4,
+    padding: spacing.md,
+    marginBottom: spacing.sm,
+  },
+  iconChip: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 2,
+  },
   rowTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  rowTitle: { fontSize: 16, fontWeight: '700', color: colors.text },
-  rowDesc: { color: colors.text, marginTop: 4, fontSize: 14 },
+  rowTitle: { fontSize: 15, fontFamily: fonts.heavy, color: colors.text },
+  rowDesc: { color: colors.text, marginTop: 2, fontSize: 14, fontFamily: fonts.regular },
   fabRow: {
     position: 'absolute',
     bottom: spacing.lg,

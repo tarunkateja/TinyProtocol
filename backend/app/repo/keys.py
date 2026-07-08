@@ -63,6 +63,14 @@ def med_preset_sk(preset_id: str) -> str:
     return f"MEDPRESET#{preset_id}"
 
 
+def feed_preset_sk(preset_id: str) -> str:
+    return f"FEEDPRESET#{preset_id}"
+
+
+def chat_sk(chat_id: str) -> str:
+    return f"CHAT#{chat_id}"
+
+
 def baby_pk(baby_id: str) -> str:
     return f"BABY#{baby_id}"
 
