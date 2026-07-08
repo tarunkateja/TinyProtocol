@@ -46,15 +46,24 @@ export default function Today() {
     return feed?.occurred_at ?? null;
   }, [timelineQ.data]);
 
+  const lastMedAt = useMemo(() => {
+    const med = timelineQ.data?.items.find(
+      (i) => i.item_type === 'EVENT' && i.type === 'medication',
+    );
+    return med?.occurred_at ?? null;
+  }, [timelineQ.data]);
+
   const [rhythm, setRhythm] = useState<FeedRhythm | null>(null);
+  const [medRhythm, setMedRhythm] = useState<FeedRhythm | null>(null);
   const [, setTick] = useState(0);
 
-  // Re-anchor the reminder to the newest feed; also re-runs on screen focus
-  // (e.g. after changing the rhythm in Reminders).
+  // Re-anchor the reminders to the newest feed/med; also re-runs on screen
+  // focus (e.g. after changing a rhythm in Reminders).
   useFocusEffect(
     useCallback(() => {
-      syncFeedReminder(lastFeedAt).then(setRhythm);
-    }, [lastFeedAt]),
+      syncFeedReminder(lastFeedAt, 'feed').then(setRhythm);
+      syncFeedReminder(lastMedAt, 'med').then(setMedRhythm);
+    }, [lastFeedAt, lastMedAt]),
   );
 
   // Minute tick so the countdown stays fresh.
@@ -68,6 +77,7 @@ export default function Today() {
 
   const s = dayQ.data;
   const due = rhythm ? nextFeedDue(rhythm, lastFeedAt) : null;
+  const medDue = medRhythm ? nextFeedDue(medRhythm, lastMedAt) : null;
 
   const confirmDelete = (entry: TimelineEntry) => {
     const isFeed = entry.item_type === 'FEED';
@@ -101,31 +111,34 @@ export default function Today() {
         }
         ListHeaderComponent={
           <>
-            {rhythm && !rhythm.enabled && (
+            {rhythm && medRhythm && !rhythm.enabled && !medRhythm.enabled && (
               <Pressable onPress={() => router.push('/reminders')}>
                 <View style={styles.rhythmSetup}>
                   <Text style={styles.rhythmSetupText}>
-                    ⏰ Set a feed reminder (auto-repeats after each feed)
+                    ⏰ Set feed & med reminders (auto-repeat after each log)
                   </Text>
                 </View>
               </Pressable>
             )}
             {due && (
-              <Pressable onPress={() => router.push('/reminders')}>
-                <View
-                  style={[
-                    styles.rhythmBanner,
-                    due.getTime() < Date.now() && styles.rhythmOverdue,
-                  ]}
-                >
-                  <Text style={styles.rhythmText}>
-                    {due.getTime() < Date.now()
-                      ? `🍼 Feed due — ${fmtCountdown(Date.now() - due.getTime())} overdue`
-                      : `⏰ Next feed ≈ ${due.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })} · in ${fmtCountdown(due.getTime() - Date.now())}`}
-                  </Text>
-                  <Muted>every {rhythm!.intervalHours} h · tap to adjust</Muted>
-                </View>
-              </Pressable>
+              <RhythmBanner
+                due={due}
+                intervalHours={rhythm!.intervalHours}
+                icon="🍼"
+                noun="feed"
+                onPress={() => router.push('/reminders')}
+              />
+            )}
+            {medDue && (
+              <RhythmBanner
+                due={medDue}
+                intervalHours={medRhythm!.intervalHours}
+                icon="💊"
+                noun="dose"
+                color={eventTheme.medication.color}
+                soft={eventTheme.medication.soft}
+                onPress={() => router.push('/reminders')}
+              />
             )}
             <View style={styles.statsRow}>
             <Stat label="fed today" value={`${fmtNum(s?.total_ml)} ml`} />
@@ -178,6 +191,44 @@ export default function Today() {
         />
       </View>
     </View>
+  );
+}
+
+function RhythmBanner({
+  due,
+  intervalHours,
+  icon,
+  noun,
+  color,
+  soft,
+  onPress,
+}: {
+  due: Date;
+  intervalHours: number;
+  icon: string;
+  noun: string;
+  color?: string;
+  soft?: string;
+  onPress: () => void;
+}) {
+  const overdue = due.getTime() < Date.now();
+  return (
+    <Pressable onPress={onPress}>
+      <View
+        style={[
+          styles.rhythmBanner,
+          soft && color && { backgroundColor: soft, borderColor: color },
+          overdue && styles.rhythmOverdue,
+        ]}
+      >
+        <Text style={styles.rhythmText}>
+          {overdue
+            ? `${icon} ${noun[0].toUpperCase() + noun.slice(1)} due — ${fmtCountdown(Date.now() - due.getTime())} overdue`
+            : `${icon} Next ${noun} ≈ ${due.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })} · in ${fmtCountdown(due.getTime() - Date.now())}`}
+        </Text>
+        <Muted>every {intervalHours} h · tap to adjust</Muted>
+      </View>
+    </Pressable>
   );
 }
 

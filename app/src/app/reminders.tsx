@@ -8,6 +8,7 @@ import { Alert, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 're
 import { api } from '../lib/api';
 import {
   FeedRhythm,
+  RhythmKind,
   ensureNotifPermission,
   getFeedRhythm,
   nextFeedDue,
@@ -47,6 +48,7 @@ export default function Reminders() {
   const [reminders, setReminders] = useState<Reminder[]>([]);
   const [dailyTime, setDailyTime] = useState(new Date());
   const [rhythm, setRhythm] = useState<FeedRhythm | null>(null);
+  const [medRhythm, setMedRhythm] = useState<FeedRhythm | null>(null);
   const [onceH, setOnceH] = useState(2);
   const [onceM, setOnceM] = useState(30);
 
@@ -58,19 +60,29 @@ export default function Reminders() {
   });
   const lastFeedAt =
     timelineQ.data?.items.find((i) => i.item_type === 'FEED')?.occurred_at ?? null;
+  const lastMedAt =
+    timelineQ.data?.items.find(
+      (i) => i.item_type === 'EVENT' && i.type === 'medication',
+    )?.occurred_at ?? null;
 
   useEffect(() => {
     loadReminders().then(setReminders);
-    getFeedRhythm().then(setRhythm);
+    getFeedRhythm('feed').then(setRhythm);
+    getFeedRhythm('med').then(setMedRhythm);
   }, []);
 
-  const updateRhythm = async (patch: Partial<FeedRhythm>) => {
+  const updateRhythm = async (
+    patch: Partial<FeedRhythm>,
+    kind: RhythmKind = 'feed',
+  ) => {
     if (patch.enabled && !(await ensureNotifPermission())) return;
-    await setFeedRhythm(patch);
-    setRhythm(await syncFeedReminder(lastFeedAt));
+    await setFeedRhythm(patch, kind);
+    const next = await syncFeedReminder(kind === 'feed' ? lastFeedAt : lastMedAt, kind);
+    (kind === 'feed' ? setRhythm : setMedRhythm)(next);
   };
 
   const due = rhythm ? nextFeedDue(rhythm, lastFeedAt) : null;
+  const medDue = medRhythm ? nextFeedDue(medRhythm, lastMedAt) : null;
 
   const persist = async (list: Reminder[]) => {
     setReminders(list);
@@ -133,82 +145,28 @@ export default function Reminders() {
       </Muted>
 
       <SectionTitle>Feed rhythm (auto-reschedules)</SectionTitle>
-      <Card>
-        <View style={styles.rhythmRow}>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.rhythmTitle}>Remind after every feed</Text>
-            <Muted>
-              Counts from the LAST LOGGED FEED — log a feed and the reminder moves
-              automatically (fed at 12:00 with 2.5 h → 2:30; fed at 3:00 → 5:30).
-            </Muted>
-          </View>
-          <Switch
-            value={rhythm?.enabled ?? false}
-            onValueChange={(v) => updateRhythm({ enabled: v })}
-          />
-        </View>
-        {rhythm?.enabled && (
-          <>
-            <Text style={[styles.rhythmTitle, { marginTop: spacing.md }]}>
-              Remind every {fmtInterval(rhythm.intervalHours)} after a feed
-            </Text>
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginTop: 4 }}>
-              {[2, 2.5, 3, 3.5, 4].map((h) => (
-                <Pressable
-                  key={h}
-                  style={[styles.chip, rhythm.intervalHours === h && styles.chipActive]}
-                  onPress={() => updateRhythm({ intervalHours: h })}
-                >
-                  <Text
-                    style={[styles.chipText, rhythm.intervalHours === h && { color: '#fff' }]}
-                  >
-                    {fmtInterval(h)}
-                  </Text>
-                </Pressable>
-              ))}
-            </View>
-            <View style={{ flexDirection: 'row', gap: spacing.md, marginTop: spacing.xs }}>
-              <View style={{ flex: 1 }}>
-                <Muted style={{ marginBottom: 4 }}>hours</Muted>
-                <Stepper
-                  value={Math.floor(rhythm.intervalHours)}
-                  onChange={(h) =>
-                    updateRhythm({
-                      intervalHours: Math.max(
-                        0.25,
-                        Math.max(0, h) + (Math.round((rhythm.intervalHours % 1) * 60) % 60) / 60,
-                      ),
-                    })
-                  }
-                  step={1}
-                  suffix="h"
-                />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Muted style={{ marginBottom: 4 }}>minutes</Muted>
-                <Stepper
-                  value={Math.round((rhythm.intervalHours % 1) * 60)}
-                  onChange={(m) =>
-                    updateRhythm({
-                      intervalHours: Math.max(
-                        0.25,
-                        Math.floor(rhythm.intervalHours) + Math.min(55, Math.max(0, m)) / 60,
-                      ),
-                    })
-                  }
-                  step={5}
-                  suffix="m"
-                />
-              </View>
-            </View>
-            <Muted style={{ marginTop: spacing.sm }}>
-              {due
-                ? `Next: ${due.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })} (from the last logged feed — changes automatically with every feed)`
-                : 'Log a feed to start the clock.'}
-            </Muted>
-          </>
-        )}
-      </Card>
+      <RhythmCard
+        title="Remind after every feed"
+        desc="Counts from the LAST LOGGED FEED — log a feed and the reminder moves automatically."
+        rhythm={rhythm}
+        due={due}
+        lastAt={lastFeedAt}
+        chips={[2, 2.5, 3, 3.5, 4]}
+        onUpdate={(patch) => updateRhythm(patch, 'feed')}
+        emptyHint="Log a feed to start the clock."
+      />
+
+      <SectionTitle>Medication rhythm (auto-reschedules)</SectionTitle>
+      <RhythmCard
+        title="Remind after every dose"
+        desc="Counts from the LAST LOGGED MEDICATION — e.g. dose at 11:30 PM with 8 h → reminder at 7:30 AM; log the next dose and it moves again."
+        rhythm={medRhythm}
+        due={medDue}
+        lastAt={lastMedAt}
+        chips={[4, 6, 8, 12]}
+        onUpdate={(patch) => updateRhythm(patch, 'med')}
+        emptyHint="Log a medication event to start the clock."
+      />
 
       <SectionTitle>Remind me once</SectionTitle>
       <Card>
@@ -269,6 +227,100 @@ export default function Reminders() {
         </Card>
       )}
     </ScrollView>
+  );
+}
+
+function RhythmCard({
+  title,
+  desc,
+  rhythm,
+  due,
+  lastAt,
+  chips,
+  onUpdate,
+  emptyHint,
+}: {
+  title: string;
+  desc: string;
+  rhythm: FeedRhythm | null;
+  due: Date | null;
+  lastAt: string | null;
+  chips: number[];
+  onUpdate: (patch: Partial<FeedRhythm>) => void;
+  emptyHint: string;
+}) {
+  return (
+    <Card>
+      <View style={styles.rhythmRow}>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.rhythmTitle}>{title}</Text>
+          <Muted>{desc}</Muted>
+        </View>
+        <Switch
+          value={rhythm?.enabled ?? false}
+          onValueChange={(v) => onUpdate({ enabled: v })}
+        />
+      </View>
+      {rhythm?.enabled && (
+        <>
+          <Text style={[styles.rhythmTitle, { marginTop: spacing.md }]}>
+            Remind every {fmtInterval(rhythm.intervalHours)}
+          </Text>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginTop: 4 }}>
+            {chips.map((h) => (
+              <Pressable
+                key={h}
+                style={[styles.chip, rhythm.intervalHours === h && styles.chipActive]}
+                onPress={() => onUpdate({ intervalHours: h })}
+              >
+                <Text style={[styles.chipText, rhythm.intervalHours === h && { color: '#fff' }]}>
+                  {fmtInterval(h)}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+          <View style={{ flexDirection: 'row', gap: spacing.md, marginTop: spacing.xs }}>
+            <View style={{ flex: 1 }}>
+              <Muted style={{ marginBottom: 4 }}>hours</Muted>
+              <Stepper
+                value={Math.floor(rhythm.intervalHours)}
+                onChange={(h) =>
+                  onUpdate({
+                    intervalHours: Math.max(
+                      0.25,
+                      Math.max(0, h) + (Math.round((rhythm.intervalHours % 1) * 60) % 60) / 60,
+                    ),
+                  })
+                }
+                step={1}
+                suffix="h"
+              />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Muted style={{ marginBottom: 4 }}>minutes</Muted>
+              <Stepper
+                value={Math.round((rhythm.intervalHours % 1) * 60)}
+                onChange={(m) =>
+                  onUpdate({
+                    intervalHours: Math.max(
+                      0.25,
+                      Math.floor(rhythm.intervalHours) + Math.min(55, Math.max(0, m)) / 60,
+                    ),
+                  })
+                }
+                step={5}
+                suffix="m"
+              />
+            </View>
+          </View>
+          <Muted style={{ marginTop: spacing.sm }}>
+            {due && lastAt
+              ? `Next: ${due.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })} (from the last log — moves automatically)`
+              : emptyHint}
+          </Muted>
+        </>
+      )}
+    </Card>
   );
 }
 
