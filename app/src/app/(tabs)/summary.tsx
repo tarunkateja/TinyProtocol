@@ -48,7 +48,7 @@ export default function SummaryScreen() {
       </View>
 
       <Card style={styles.textCard}>
-        <Text style={styles.summaryText}>
+        <Text selectable style={styles.summaryText}>
           {q.isLoading ? 'Building summary…' : s?.summary_text || 'Nothing logged in this window.'}
         </Text>
       </Card>

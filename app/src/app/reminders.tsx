@@ -35,10 +35,20 @@ async function saveReminders(list: Reminder[]) {
   await AsyncStorage.setItem(STORE_KEY, JSON.stringify(list));
 }
 
+export function fmtInterval(hours: number): string {
+  const h = Math.floor(hours);
+  const m = Math.round((hours % 1) * 60);
+  if (h && m) return `${h}h ${m}m`;
+  if (h) return `${h}h`;
+  return `${m}m`;
+}
+
 export default function Reminders() {
   const [reminders, setReminders] = useState<Reminder[]>([]);
   const [dailyTime, setDailyTime] = useState(new Date());
   const [rhythm, setRhythm] = useState<FeedRhythm | null>(null);
+  const [onceH, setOnceH] = useState(2);
+  const [onceM, setOnceM] = useState(30);
 
   const { baby } = useBaby();
   const timelineQ = useQuery({
@@ -72,7 +82,7 @@ export default function Reminders() {
     const notifId = await Notifications.scheduleNotificationAsync({
       content: {
         title: '🍼 Feed time',
-        body: `It's been ${hours} hours since you set this reminder.`,
+        body: `You asked to be reminded ${fmtInterval(hours)} ago.`,
         sound: true,
       },
       trigger: {
@@ -86,7 +96,7 @@ export default function Reminders() {
       {
         notifId,
         kind: 'once',
-        label: `Once at ${at.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })} (in ${hours}h)`,
+        label: `Once at ${at.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })} (in ${fmtInterval(hours)})`,
       },
     ]);
   };
@@ -139,16 +149,61 @@ export default function Reminders() {
         </View>
         {rhythm?.enabled && (
           <>
-            <Text style={[styles.rhythmTitle, { marginTop: spacing.md }]}>Every… (hours)</Text>
-            <Stepper
-              value={rhythm.intervalHours}
-              onChange={(v) => updateRhythm({ intervalHours: Math.max(0.5, v) })}
-              step={0.5}
-              suffix="h"
-            />
+            <Text style={[styles.rhythmTitle, { marginTop: spacing.md }]}>
+              Remind every {fmtInterval(rhythm.intervalHours)} after a feed
+            </Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginTop: 4 }}>
+              {[2, 2.5, 3, 3.5, 4].map((h) => (
+                <Pressable
+                  key={h}
+                  style={[styles.chip, rhythm.intervalHours === h && styles.chipActive]}
+                  onPress={() => updateRhythm({ intervalHours: h })}
+                >
+                  <Text
+                    style={[styles.chipText, rhythm.intervalHours === h && { color: '#fff' }]}
+                  >
+                    {fmtInterval(h)}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+            <View style={{ flexDirection: 'row', gap: spacing.md, marginTop: spacing.xs }}>
+              <View style={{ flex: 1 }}>
+                <Muted style={{ marginBottom: 4 }}>hours</Muted>
+                <Stepper
+                  value={Math.floor(rhythm.intervalHours)}
+                  onChange={(h) =>
+                    updateRhythm({
+                      intervalHours: Math.max(
+                        0.25,
+                        Math.max(0, h) + (Math.round((rhythm.intervalHours % 1) * 60) % 60) / 60,
+                      ),
+                    })
+                  }
+                  step={1}
+                  suffix="h"
+                />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Muted style={{ marginBottom: 4 }}>minutes</Muted>
+                <Stepper
+                  value={Math.round((rhythm.intervalHours % 1) * 60)}
+                  onChange={(m) =>
+                    updateRhythm({
+                      intervalHours: Math.max(
+                        0.25,
+                        Math.floor(rhythm.intervalHours) + Math.min(55, Math.max(0, m)) / 60,
+                      ),
+                    })
+                  }
+                  step={5}
+                  suffix="m"
+                />
+              </View>
+            </View>
             <Muted style={{ marginTop: spacing.sm }}>
               {due
-                ? `Next: ${due.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })} (based on the last feed)`
+                ? `Next: ${due.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })} (from the last logged feed — changes automatically with every feed)`
                 : 'Log a feed to start the clock.'}
             </Muted>
           </>
@@ -156,13 +211,29 @@ export default function Reminders() {
       </Card>
 
       <SectionTitle>Remind me once</SectionTitle>
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
-        {[2, 2.5, 3, 4].map((h) => (
-          <Pressable key={h} style={styles.chip} onPress={() => addOneOff(h)}>
-            <Text style={styles.chipText}>In {h}h</Text>
-          </Pressable>
-        ))}
-      </View>
+      <Card>
+        <View style={{ flexDirection: 'row', gap: spacing.md }}>
+          <View style={{ flex: 1 }}>
+            <Muted style={{ marginBottom: 4 }}>hours</Muted>
+            <Stepper value={onceH} onChange={(v) => setOnceH(Math.max(0, v))} step={1} suffix="h" />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Muted style={{ marginBottom: 4 }}>minutes</Muted>
+            <Stepper
+              value={onceM}
+              onChange={(v) => setOnceM(Math.min(55, Math.max(0, v)))}
+              step={5}
+              suffix="m"
+            />
+          </View>
+        </View>
+        <Button
+          title={`⏰ Remind me in ${fmtInterval(onceH + onceM / 60)}`}
+          onPress={() => addOneOff(onceH + onceM / 60)}
+          disabled={onceH + onceM / 60 <= 0}
+          style={{ marginTop: spacing.sm }}
+        />
+      </Card>
 
       <SectionTitle>Every day at…</SectionTitle>
       <Card>
@@ -210,6 +281,7 @@ const styles = StyleSheet.create({
     marginRight: spacing.sm,
     marginBottom: spacing.sm,
   },
+  chipActive: { backgroundColor: colors.primary },
   chipText: { color: colors.text, fontFamily: fonts.bold, fontSize: 14 },
   row: {
     flexDirection: 'row',

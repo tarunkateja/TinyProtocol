@@ -26,6 +26,19 @@ interface ChatMsg {
   error?: boolean;
 }
 
+/** Belt-and-suspenders: the backend asks for plain text, but strip any stray
+ * Markdown so bubbles never show ** or ### again. */
+function sanitize(text: string): string {
+  return text
+    .replace(/\*\*(.+?)\*\*/g, '$1')
+    .replace(/__(.+?)__/g, '$1')
+    .replace(/^#{1,6}\s+/gm, '')
+    .replace(/^\s*---+\s*$/gm, '')
+    .replace(/^(\s*)[-*]\s+/gm, '$1• ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 const QUICK_PROMPTS = [
   'Draft an update for our metabolic team covering the last 24 hours',
   'How are we tracking against the lysine target today?',
@@ -41,7 +54,14 @@ export default function Ask() {
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+  const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
   const listRef = useRef<FlatList>(null);
+
+  const copyMessage = async (idx: number, content: string) => {
+    await Clipboard.setStringAsync(content);
+    setCopiedIdx(idx);
+    setTimeout(() => setCopiedIdx(null), 1500);
+  };
 
   const chatsQ = useQuery({ queryKey: ['chats'], queryFn: api.listChats });
 
@@ -55,7 +75,7 @@ export default function Ask() {
     try {
       const full = await api.getChat(meta.id);
       setChatId(full.id);
-      setMessages(full.messages.map((m) => ({ role: m.role, content: m.content })));
+      setMessages(full.messages.map((m) => ({ role: m.role, content: sanitize(m.content) })));
       setShowHistory(false);
     } catch (e: any) {
       Alert.alert('Could not open chat', e.message);
@@ -88,7 +108,7 @@ export default function Ask() {
         ? await api.sendChatMessage(chatId, content)
         : await api.createChat(baby.id, content);
       setChatId(resp.chat.id);
-      setMessages(resp.chat.messages.map((m) => ({ role: m.role, content: m.content })));
+      setMessages(resp.chat.messages.map((m) => ({ role: m.role, content: sanitize(m.content) })));
       qc.invalidateQueries({ queryKey: ['chats'] });
     } catch (e: any) {
       setMessages((cur) => [
@@ -176,7 +196,7 @@ export default function Ask() {
           <View style={{ flex: 1, justifyContent: 'center' }}>
             <Text style={styles.emptyTitle}>Ask about {baby?.name ?? 'your baby'}’s logs</Text>
             <Muted style={{ textAlign: 'center', marginBottom: spacing.lg }}>
-              Answers use only your logged data — chats are shared with your partner.
+              Answers use only your logged data — chats are shared with your partner. Press and hold any reply to select text.
             </Muted>
             {QUICK_PROMPTS.map((p) => (
               <Pressable key={p} style={styles.promptChip} onPress={() => send(p)}>
@@ -185,19 +205,32 @@ export default function Ask() {
             ))}
           </View>
         }
-        renderItem={({ item }) => (
-          <Pressable
-            onLongPress={() => Clipboard.setStringAsync(item.content)}
+        renderItem={({ item, index }) => (
+          <View
             style={[
               styles.bubble,
               item.role === 'user' ? styles.userBubble : styles.assistantBubble,
               item.error && styles.errorBubble,
             ]}
           >
-            <Text style={item.role === 'user' ? styles.userText : styles.assistantText}>
+            <Text
+              selectable
+              style={item.role === 'user' ? styles.userText : styles.assistantText}
+            >
               {item.content}
             </Text>
-          </Pressable>
+            {item.role === 'assistant' && !item.error && (
+              <Pressable
+                onPress={() => copyMessage(index, item.content)}
+                style={styles.copyBtn}
+                hitSlop={8}
+              >
+                <Text style={styles.copyBtnText}>
+                  {copiedIdx === index ? '✓ Copied' : '⧉ Copy'}
+                </Text>
+              </Pressable>
+            )}
+          </View>
         )}
         ListFooterComponent={
           busy ? (
@@ -287,6 +320,8 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
   },
   errorBubble: { borderColor: colors.danger },
+  copyBtn: { alignSelf: 'flex-start', marginTop: 8 },
+  copyBtnText: { color: colors.primary, fontFamily: fonts.bold, fontSize: 13 },
   userText: { color: '#fff', fontSize: 15, lineHeight: 21, fontFamily: fonts.regular },
   assistantText: { color: colors.text, fontSize: 15, lineHeight: 21, fontFamily: fonts.regular },
   inputRow: {

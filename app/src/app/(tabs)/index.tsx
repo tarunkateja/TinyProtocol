@@ -100,6 +100,15 @@ export default function Today() {
         }
         ListHeaderComponent={
           <>
+            {rhythm && !rhythm.enabled && (
+              <Pressable onPress={() => router.push('/reminders')}>
+                <View style={styles.rhythmSetup}>
+                  <Text style={styles.rhythmSetupText}>
+                    ⏰ Set a feed reminder (auto-repeats after each feed)
+                  </Text>
+                </View>
+              </Pressable>
+            )}
             {due && (
               <Pressable onPress={() => router.push('/reminders')}>
                 <View
@@ -314,6 +323,17 @@ const styles = StyleSheet.create({
     borderColor: colors.danger,
   },
   rhythmText: { fontFamily: fonts.heavy, fontSize: 15, color: colors.text, marginBottom: 2 },
+  rhythmSetup: {
+    backgroundColor: colors.card,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderStyle: 'dashed',
+    padding: spacing.md,
+    marginBottom: spacing.sm,
+    alignItems: 'center',
+  },
+  rhythmSetupText: { fontFamily: fonts.semibold, fontSize: 14, color: colors.muted },
   statsRow: {
     flexDirection: 'row',
     gap: spacing.sm,
