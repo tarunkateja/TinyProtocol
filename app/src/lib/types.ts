@@ -220,10 +220,16 @@ export interface TokenResponse {
   user: User;
 }
 
+export interface RhythmConfig {
+  enabled: boolean;
+  interval_hours: number;
+}
+
 export interface Family {
   id: string;
   name?: string | null;
   timezone: string;
   day_start: string; // "HH:MM" — when the family's day begins
+  rhythms: { feed: RhythmConfig; med: RhythmConfig };
   members: { email: string; name: string; role: string }[];
 }

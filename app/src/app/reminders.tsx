@@ -7,15 +7,15 @@ import { Alert, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 're
 
 import { api } from '../lib/api';
 import {
-  FeedRhythm,
+  DEFAULT_RHYTHMS,
+  RhythmConfig,
   RhythmKind,
   ensureNotifPermission,
-  getFeedRhythm,
-  nextFeedDue,
-  setFeedRhythm,
-  syncFeedReminder,
+  nextDue,
+  syncRhythmNotification,
 } from '../lib/feedReminder';
-import { useBaby } from '../lib/hooks';
+import { useQueryClient } from '@tanstack/react-query';
+import { useBaby, useFamily } from '../lib/hooks';
 import { colors, fonts, radius, spacing } from '../lib/theme';
 import { Button, Card, Muted, SectionTitle, Stepper } from '../components/ui';
 
@@ -47,8 +47,9 @@ export function fmtInterval(hours: number): string {
 export default function Reminders() {
   const [reminders, setReminders] = useState<Reminder[]>([]);
   const [dailyTime, setDailyTime] = useState(new Date());
-  const [rhythm, setRhythm] = useState<FeedRhythm | null>(null);
-  const [medRhythm, setMedRhythm] = useState<FeedRhythm | null>(null);
+  const qc = useQueryClient();
+  const { family } = useFamily();
+  const rhythms = family?.rhythms ?? DEFAULT_RHYTHMS;
   const [onceH, setOnceH] = useState(2);
   const [onceM, setOnceM] = useState(30);
 
@@ -67,22 +68,29 @@ export default function Reminders() {
 
   useEffect(() => {
     loadReminders().then(setReminders);
-    getFeedRhythm('feed').then(setRhythm);
-    getFeedRhythm('med').then(setMedRhythm);
   }, []);
 
-  const updateRhythm = async (
-    patch: Partial<FeedRhythm>,
-    kind: RhythmKind = 'feed',
-  ) => {
+  const updateRhythm = async (patch: Partial<RhythmConfig>, kind: RhythmKind) => {
     if (patch.enabled && !(await ensureNotifPermission())) return;
-    await setFeedRhythm(patch, kind);
-    const next = await syncFeedReminder(kind === 'feed' ? lastFeedAt : lastMedAt, kind);
-    (kind === 'feed' ? setRhythm : setMedRhythm)(next);
+    const merged = {
+      ...rhythms,
+      [kind]: { ...rhythms[kind], ...patch },
+    };
+    try {
+      await api.updateFamily({ rhythms: merged });
+      qc.invalidateQueries({ queryKey: ['me'] });
+      await syncRhythmNotification(
+        kind,
+        merged[kind],
+        kind === 'feed' ? lastFeedAt : lastMedAt,
+      );
+    } catch (e: any) {
+      Alert.alert('Could not save', e.message);
+    }
   };
 
-  const due = rhythm ? nextFeedDue(rhythm, lastFeedAt) : null;
-  const medDue = medRhythm ? nextFeedDue(medRhythm, lastMedAt) : null;
+  const due = nextDue(rhythms.feed, lastFeedAt);
+  const medDue = nextDue(rhythms.med, lastMedAt);
 
   const persist = async (list: Reminder[]) => {
     setReminders(list);
@@ -145,10 +153,13 @@ export default function Reminders() {
       </Muted>
 
       <SectionTitle>Feed rhythm (auto-reschedules)</SectionTitle>
+      <Muted style={{ marginBottom: spacing.sm }}>
+        Rhythms are SHARED — both parents see the same next-feed/next-dose times.
+      </Muted>
       <RhythmCard
         title="Remind after every feed"
         desc="Counts from the LAST LOGGED FEED — log a feed and the reminder moves automatically."
-        rhythm={rhythm}
+        rhythm={rhythms.feed}
         due={due}
         lastAt={lastFeedAt}
         chips={[2, 2.5, 3, 3.5, 4]}
@@ -160,7 +171,7 @@ export default function Reminders() {
       <RhythmCard
         title="Remind after every dose"
         desc="Counts from the LAST LOGGED MEDICATION — e.g. dose at 11:30 PM with 8 h → reminder at 7:30 AM; log the next dose and it moves again."
-        rhythm={medRhythm}
+        rhythm={rhythms.med}
         due={medDue}
         lastAt={lastMedAt}
         chips={[4, 6, 8, 12]}
@@ -242,11 +253,11 @@ function RhythmCard({
 }: {
   title: string;
   desc: string;
-  rhythm: FeedRhythm | null;
+  rhythm: RhythmConfig | null;
   due: Date | null;
   lastAt: string | null;
   chips: number[];
-  onUpdate: (patch: Partial<FeedRhythm>) => void;
+  onUpdate: (patch: Partial<RhythmConfig>) => void;
   emptyHint: string;
 }) {
   return (
@@ -264,16 +275,16 @@ function RhythmCard({
       {rhythm?.enabled && (
         <>
           <Text style={[styles.rhythmTitle, { marginTop: spacing.md }]}>
-            Remind every {fmtInterval(rhythm.intervalHours)}
+            Remind every {fmtInterval(rhythm.interval_hours)}
           </Text>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginTop: 4 }}>
             {chips.map((h) => (
               <Pressable
                 key={h}
-                style={[styles.chip, rhythm.intervalHours === h && styles.chipActive]}
-                onPress={() => onUpdate({ intervalHours: h })}
+                style={[styles.chip, rhythm.interval_hours === h && styles.chipActive]}
+                onPress={() => onUpdate({ interval_hours: h })}
               >
-                <Text style={[styles.chipText, rhythm.intervalHours === h && { color: '#fff' }]}>
+                <Text style={[styles.chipText, rhythm.interval_hours === h && { color: '#fff' }]}>
                   {fmtInterval(h)}
                 </Text>
               </Pressable>
@@ -283,12 +294,12 @@ function RhythmCard({
             <View style={{ flex: 1 }}>
               <Muted style={{ marginBottom: 4 }}>hours</Muted>
               <Stepper
-                value={Math.floor(rhythm.intervalHours)}
+                value={Math.floor(rhythm.interval_hours)}
                 onChange={(h) =>
                   onUpdate({
-                    intervalHours: Math.max(
+                    interval_hours: Math.max(
                       0.25,
-                      Math.max(0, h) + (Math.round((rhythm.intervalHours % 1) * 60) % 60) / 60,
+                      Math.max(0, h) + (Math.round((rhythm.interval_hours % 1) * 60) % 60) / 60,
                     ),
                   })
                 }
@@ -299,12 +310,12 @@ function RhythmCard({
             <View style={{ flex: 1 }}>
               <Muted style={{ marginBottom: 4 }}>minutes</Muted>
               <Stepper
-                value={Math.round((rhythm.intervalHours % 1) * 60)}
+                value={Math.round((rhythm.interval_hours % 1) * 60)}
                 onChange={(m) =>
                   onUpdate({
-                    intervalHours: Math.max(
+                    interval_hours: Math.max(
                       0.25,
-                      Math.floor(rhythm.intervalHours) + Math.min(55, Math.max(0, m)) / 60,
+                      Math.floor(rhythm.interval_hours) + Math.min(55, Math.max(0, m)) / 60,
                     ),
                   })
                 }

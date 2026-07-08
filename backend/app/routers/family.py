@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.auth import CurrentUser, get_current_user
-from app.models.family import FamilyOut, FamilyUpdate, MeOut, MemberOut, UserOut
+from app.models.family import FamilyOut, FamilyRhythms, FamilyUpdate, MeOut, MemberOut, UserOut
 from app.repo import families, users
 
 router = APIRouter(tags=["family"])
@@ -17,6 +17,7 @@ def _family_out(family_id: str) -> FamilyOut:
         name=fam.get("name"),
         timezone=fam["timezone"],
         day_start=fam.get("day_start") or "00:00",
+        rhythms=FamilyRhythms.model_validate(fam.get("rhythms") or {}),
         members=members,
     )
 

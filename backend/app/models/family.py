@@ -68,12 +68,26 @@ class MemberOut(BaseModel):
     role: str = "parent"
 
 
+class RhythmConfig(BaseModel):
+    enabled: bool = False
+    interval_hours: float = Field(2.5, gt=0, le=48)
+
+
+class FamilyRhythms(BaseModel):
+    """Shared reminder rhythms — both parents see the same next-feed/next-dose
+    times; each phone schedules its own local notification from these."""
+
+    feed: RhythmConfig = RhythmConfig()
+    med: RhythmConfig = RhythmConfig(interval_hours=8)
+
+
 class FamilyOut(BaseModel):
     id: str
     name: Optional[str] = None
     timezone: str
     # Local wall-clock time the family's "day" starts (daily totals bucket).
     day_start: str = "00:00"
+    rhythms: FamilyRhythms = FamilyRhythms()
     members: list[MemberOut] = []
 
 
@@ -81,6 +95,7 @@ class FamilyUpdate(BaseModel):
     name: Optional[str] = None
     timezone: Optional[str] = None
     day_start: Optional[str] = None
+    rhythms: Optional[FamilyRhythms] = None
 
     @field_validator("timezone")
     @classmethod

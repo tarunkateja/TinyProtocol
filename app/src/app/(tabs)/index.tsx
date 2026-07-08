@@ -13,11 +13,7 @@ import {
 
 import { api } from '../../lib/api';
 import { effectiveDayString, fmtNum, fmtTime } from '../../lib/format';
-import {
-  FeedRhythm,
-  nextFeedDue,
-  syncFeedReminder,
-} from '../../lib/feedReminder';
+import { DEFAULT_RHYTHMS, nextDue, syncRhythmNotification } from '../../lib/feedReminder';
 import { useBaby, useFamily, useInvalidateLogs } from '../../lib/hooks';
 import { colors, eventTheme, fonts, radius, spacing } from '../../lib/theme';
 import type { CareEvent, Feed, TimelineEntry } from '../../lib/types';
@@ -53,17 +49,17 @@ export default function Today() {
     return med?.occurred_at ?? null;
   }, [timelineQ.data]);
 
-  const [rhythm, setRhythm] = useState<FeedRhythm | null>(null);
-  const [medRhythm, setMedRhythm] = useState<FeedRhythm | null>(null);
+  const rhythms = family?.rhythms ?? DEFAULT_RHYTHMS;
   const [, setTick] = useState(0);
 
-  // Re-anchor the reminders to the newest feed/med; also re-runs on screen
-  // focus (e.g. after changing a rhythm in Reminders).
+  // Re-anchor this phone's notifications to the newest feed/med using the
+  // family-shared config; re-runs on focus (e.g. after Reminders changes).
   useFocusEffect(
     useCallback(() => {
-      syncFeedReminder(lastFeedAt, 'feed').then(setRhythm);
-      syncFeedReminder(lastMedAt, 'med').then(setMedRhythm);
-    }, [lastFeedAt, lastMedAt]),
+      if (!family) return;
+      syncRhythmNotification('feed', rhythms.feed, lastFeedAt);
+      syncRhythmNotification('med', rhythms.med, lastMedAt);
+    }, [family, rhythms.feed.enabled, rhythms.feed.interval_hours, rhythms.med.enabled, rhythms.med.interval_hours, lastFeedAt, lastMedAt]),
   );
 
   // Minute tick so the countdown stays fresh.
@@ -76,8 +72,14 @@ export default function Today() {
   if (!baby) return null;
 
   const s = dayQ.data;
-  const due = rhythm ? nextFeedDue(rhythm, lastFeedAt) : null;
-  const medDue = medRhythm ? nextFeedDue(medRhythm, lastMedAt) : null;
+  const due = nextDue(rhythms.feed, lastFeedAt);
+  const medDue = nextDue(rhythms.med, lastMedAt);
+  const bmMax = s?.volume_targets.find(
+    (v) => v.category === 'breast_milk' && v.direction === 'max',
+  );
+  const ga1Min = s?.volume_targets.find(
+    (v) => v.category === 'metabolic_formula' && v.direction === 'min',
+  );
 
   const confirmDelete = (entry: TimelineEntry) => {
     const isFeed = entry.item_type === 'FEED';
@@ -111,7 +113,7 @@ export default function Today() {
         }
         ListHeaderComponent={
           <>
-            {rhythm && medRhythm && !rhythm.enabled && !medRhythm.enabled && (
+            {family && !rhythms.feed.enabled && !rhythms.med.enabled && (
               <Pressable onPress={() => router.push('/reminders')}>
                 <View style={styles.rhythmSetup}>
                   <Text style={styles.rhythmSetupText}>
@@ -123,7 +125,7 @@ export default function Today() {
             {due && (
               <RhythmBanner
                 due={due}
-                intervalHours={rhythm!.intervalHours}
+                intervalHours={rhythms.feed.interval_hours}
                 icon="🍼"
                 noun="feed"
                 onPress={() => router.push('/reminders')}
@@ -132,7 +134,7 @@ export default function Today() {
             {medDue && (
               <RhythmBanner
                 due={medDue}
-                intervalHours={medRhythm!.intervalHours}
+                intervalHours={rhythms.med.interval_hours}
                 icon="💊"
                 noun="dose"
                 color={eventTheme.medication.color}
@@ -141,22 +143,21 @@ export default function Today() {
               />
             )}
             <View style={styles.statsRow}>
-            <Stat label="fed today" value={`${fmtNum(s?.total_ml)} ml`} />
-            <Stat
-              label="breast milk"
-              value={`${fmtNum(s?.breast_milk.total_ml)} ml`}
-              color={eventTheme.feed.color}
-            />
-            <Stat
-              label="lysine"
-              value={`${fmtNum(s?.lysine_mg)} mg`}
-              sub={
-                s?.targets.lysine_mg_per_day
-                  ? `of ${fmtNum(s.targets.lysine_mg_per_day)}`
-                  : undefined
-              }
-              color={colors.metabolic}
-            />
+              <Stat label="total milk today" value={`${fmtNum(s?.total_ml)} ml`} />
+              <Stat
+                label="breast milk"
+                value={`${fmtNum(s?.breast_milk.total_ml)} ml`}
+                sub={
+                  bmMax ? `of ${fmtNum(bmMax.target_ml)} max` : undefined
+                }
+                color={eventTheme.feed.color}
+              />
+              <Stat
+                label="GA1 formula"
+                value={`${fmtNum(s?.metabolic_formula_ml)} ml`}
+                sub={ga1Min ? `of ${fmtNum(ga1Min.target_ml)} min` : undefined}
+                color={colors.metabolic}
+              />
             </View>
           </>
         }

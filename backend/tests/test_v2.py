@@ -197,3 +197,21 @@ def test_family_day_start_shifts_day_window(auth_client):
     s = c.get(f"/v1/babies/{c.baby_id}/days/2026-07-07").json()
     assert s["window_from"].startswith("2026-07-07T12:00:00")
     assert c.patch("/v1/family", json={"day_start": "8am"}).status_code == 422
+
+
+def test_family_rhythms_shared(auth_client):
+    c = auth_client
+    r = c.patch(
+        "/v1/family",
+        json={
+            "rhythms": {
+                "feed": {"enabled": True, "interval_hours": 2.5},
+                "med": {"enabled": True, "interval_hours": 8},
+            }
+        },
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["rhythms"]["med"]["interval_hours"] == 8
+    # Defaults come back for families that never set them.
+    me = c.get("/v1/me").json()
+    assert me["family"]["rhythms"]["feed"]["enabled"] is True

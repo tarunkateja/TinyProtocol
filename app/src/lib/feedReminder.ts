@@ -2,15 +2,33 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Notifications from 'expo-notifications';
 import { Alert } from 'react-native';
 
-/** Rhythm reminders: remind N hours after the LAST LOGGED anchor — feeds
- * anchor to the newest feed, meds to the newest medication event. Every new
- * log cancels and reschedules the pending notification. Phone-local. */
+/** Rhythm reminders: remind N hours after the LAST LOGGED anchor (feeds →
+ * newest feed, meds → newest medication event).
+ *
+ * The CONFIG (enabled + interval) is family-shared and lives on the backend,
+ * so both parents see the same banners. Each phone schedules its own local
+ * notification; only that scheduling state is stored here. */
 
 export type RhythmKind = 'feed' | 'med';
 
-const KEYS: Record<RhythmKind, string> = {
-  feed: 'tinyprotocol_feed_rhythm',
-  med: 'tinyprotocol_med_rhythm',
+export interface RhythmConfig {
+  enabled: boolean;
+  interval_hours: number;
+}
+
+export interface FamilyRhythms {
+  feed: RhythmConfig;
+  med: RhythmConfig;
+}
+
+export const DEFAULT_RHYTHMS: FamilyRhythms = {
+  feed: { enabled: false, interval_hours: 2.5 },
+  med: { enabled: false, interval_hours: 8 },
+};
+
+const STATE_KEYS: Record<RhythmKind, string> = {
+  feed: 'tinyprotocol_feed_rhythm_state',
+  med: 'tinyprotocol_med_rhythm_state',
 };
 
 const CONTENT: Record<RhythmKind, (h: number) => { title: string; body: string }> = {
@@ -18,31 +36,19 @@ const CONTENT: Record<RhythmKind, (h: number) => { title: string; body: string }
   med: (h) => ({ title: '💊 Medication time', body: `It's been ${h} h since the last dose.` }),
 };
 
-export interface FeedRhythm {
-  enabled: boolean;
-  intervalHours: number;
+interface ScheduleState {
   notifId?: string | null;
-  anchorFeedAt?: string | null;
+  anchorAt?: string | null;
   anchorInterval?: number | null;
 }
 
-const DEFAULTS: Record<RhythmKind, FeedRhythm> = {
-  feed: { enabled: false, intervalHours: 2.5 },
-  med: { enabled: false, intervalHours: 8 },
-};
-
-export async function getFeedRhythm(kind: RhythmKind = 'feed'): Promise<FeedRhythm> {
-  const raw = await AsyncStorage.getItem(KEYS[kind]);
-  return raw ? { ...DEFAULTS[kind], ...JSON.parse(raw) } : { ...DEFAULTS[kind] };
+async function getState(kind: RhythmKind): Promise<ScheduleState> {
+  const raw = await AsyncStorage.getItem(STATE_KEYS[kind]);
+  return raw ? JSON.parse(raw) : {};
 }
 
-export async function setFeedRhythm(
-  patch: Partial<FeedRhythm>,
-  kind: RhythmKind = 'feed',
-): Promise<FeedRhythm> {
-  const cfg = { ...(await getFeedRhythm(kind)), ...patch };
-  await AsyncStorage.setItem(KEYS[kind], JSON.stringify(cfg));
-  return cfg;
+async function setState(kind: RhythmKind, state: ScheduleState) {
+  await AsyncStorage.setItem(STATE_KEYS[kind], JSON.stringify(state));
 }
 
 export async function ensureNotifPermission(): Promise<boolean> {
@@ -59,50 +65,52 @@ export async function ensureNotifPermission(): Promise<boolean> {
   return true;
 }
 
-/** Reconcile the scheduled notification with the latest anchor. Safe to call
- * often — it no-ops when nothing changed. Returns the current config. */
-export async function syncFeedReminder(
+/** Reconcile this phone's scheduled notification with the shared config and
+ * the latest anchor. Safe to call often — no-ops when nothing changed. */
+export async function syncRhythmNotification(
+  kind: RhythmKind,
+  cfg: RhythmConfig,
   lastAt: string | null,
-  kind: RhythmKind = 'feed',
-): Promise<FeedRhythm> {
-  const cfg = await getFeedRhythm(kind);
+): Promise<void> {
+  const state = await getState(kind);
 
   if (!cfg.enabled || !lastAt) {
-    if (cfg.notifId) {
-      await Notifications.cancelScheduledNotificationAsync(cfg.notifId).catch(() => {});
-      return setFeedRhythm({ notifId: null, anchorFeedAt: null, anchorInterval: null }, kind);
+    if (state.notifId) {
+      await Notifications.cancelScheduledNotificationAsync(state.notifId).catch(() => {});
+      await setState(kind, {});
     }
-    return cfg;
+    return;
   }
 
   const unchanged =
-    cfg.anchorFeedAt === lastAt && cfg.anchorInterval === cfg.intervalHours;
-  if (unchanged && cfg.notifId) return cfg;
+    state.anchorAt === lastAt && state.anchorInterval === cfg.interval_hours;
+  if (unchanged && state.notifId) return;
 
-  if (cfg.notifId) {
-    await Notifications.cancelScheduledNotificationAsync(cfg.notifId).catch(() => {});
+  if (state.notifId) {
+    await Notifications.cancelScheduledNotificationAsync(state.notifId).catch(() => {});
   }
 
-  const targetMs = new Date(lastAt).getTime() + cfg.intervalHours * 3600_000;
+  const targetMs = new Date(lastAt).getTime() + cfg.interval_hours * 3600_000;
   const seconds = Math.round((targetMs - Date.now()) / 1000);
   let notifId: string | null = null;
   if (seconds > 30) {
     notifId = await Notifications.scheduleNotificationAsync({
-      content: { ...CONTENT[kind](cfg.intervalHours), sound: true },
+      content: { ...CONTENT[kind](cfg.interval_hours), sound: true },
       trigger: {
         type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
         seconds,
       },
     });
   }
-  return setFeedRhythm(
-    { notifId, anchorFeedAt: lastAt, anchorInterval: cfg.intervalHours },
-    kind,
-  );
+  await setState(kind, {
+    notifId,
+    anchorAt: lastAt,
+    anchorInterval: cfg.interval_hours,
+  });
 }
 
-/** The next due time implied by the rhythm, for UI display. */
-export function nextFeedDue(cfg: FeedRhythm, lastAt: string | null): Date | null {
-  if (!cfg.enabled || !lastAt) return null;
-  return new Date(new Date(lastAt).getTime() + cfg.intervalHours * 3600_000);
+/** The next due time implied by a rhythm, for UI display. */
+export function nextDue(cfg: RhythmConfig | undefined, lastAt: string | null): Date | null {
+  if (!cfg?.enabled || !lastAt) return null;
+  return new Date(new Date(lastAt).getTime() + cfg.interval_hours * 3600_000);
 }
