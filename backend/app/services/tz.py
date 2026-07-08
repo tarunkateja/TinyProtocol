@@ -5,11 +5,14 @@ from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 
-def day_window(day: date, tz_name: str) -> tuple[datetime, datetime]:
-    """UTC [start, end) of the given local calendar day."""
+def day_window(
+    day: date, tz_name: str, day_start: time = time.min
+) -> tuple[datetime, datetime]:
+    """UTC [start, end) of the given local day. A family can define its day to
+    start at e.g. 08:00, so "July 7" runs 7th 8am -> 8th 8am local."""
     tz = ZoneInfo(tz_name)
-    start = datetime.combine(day, time.min, tzinfo=tz)
-    end = datetime.combine(day + timedelta(days=1), time.min, tzinfo=tz)
+    start = datetime.combine(day, day_start, tzinfo=tz)
+    end = datetime.combine(day + timedelta(days=1), day_start, tzinfo=tz)
     return start.astimezone(timezone.utc), end.astimezone(timezone.utc)
 
 

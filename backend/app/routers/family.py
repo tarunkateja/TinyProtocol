@@ -13,7 +13,11 @@ def _family_out(family_id: str) -> FamilyOut:
         raise HTTPException(404, "Family not found")
     members = [MemberOut.model_validate(m) for m in families.list_members(family_id)]
     return FamilyOut(
-        id=fam["id"], name=fam.get("name"), timezone=fam["timezone"], members=members
+        id=fam["id"],
+        name=fam.get("name"),
+        timezone=fam["timezone"],
+        day_start=fam.get("day_start") or "00:00",
+        members=members,
     )
 
 

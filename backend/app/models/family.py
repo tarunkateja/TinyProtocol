@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, time
 from typing import Optional
 from zoneinfo import ZoneInfo
 
@@ -13,6 +13,14 @@ def _validate_tz(tz: str) -> str:
     except Exception:
         raise ValueError(f"Unknown IANA timezone: {tz!r}")
     return tz
+
+
+def _validate_day_start(v: str) -> str:
+    try:
+        time.fromisoformat(v)
+    except ValueError:
+        raise ValueError("day_start must be HH:MM, e.g. 08:00")
+    return v
 
 
 class RegisterIn(BaseModel):
@@ -64,17 +72,25 @@ class FamilyOut(BaseModel):
     id: str
     name: Optional[str] = None
     timezone: str
+    # Local wall-clock time the family's "day" starts (daily totals bucket).
+    day_start: str = "00:00"
     members: list[MemberOut] = []
 
 
 class FamilyUpdate(BaseModel):
     name: Optional[str] = None
     timezone: Optional[str] = None
+    day_start: Optional[str] = None
 
     @field_validator("timezone")
     @classmethod
     def _tz(cls, v: Optional[str]) -> Optional[str]:
         return _validate_tz(v) if v is not None else None
+
+    @field_validator("day_start")
+    @classmethod
+    def _ds(cls, v: Optional[str]) -> Optional[str]:
+        return _validate_day_start(v) if v is not None else None
 
 
 class InviteOut(BaseModel):

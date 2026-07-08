@@ -3,15 +3,17 @@ import React, { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { api } from '../../lib/api';
-import { addDays, fmtDateHeading, fmtNum, localDateString } from '../../lib/format';
-import { useBaby } from '../../lib/hooks';
+import { addDays, effectiveDayString, fmtDateHeading, fmtNum } from '../../lib/format';
+import { useBaby, useFamily } from '../../lib/hooks';
 import { colors, eventTheme, fonts, radius, spacing } from '../../lib/theme';
 import { Card, Muted, SectionTitle } from '../../components/ui';
 import type { Summary } from '../../lib/types';
 
 export default function Totals() {
   const { baby } = useBaby();
-  const [day, setDay] = useState(localDateString());
+  const { family } = useFamily();
+  const effectiveToday = effectiveDayString(family?.day_start ?? '00:00');
+  const [day, setDay] = useState(effectiveToday);
 
   const q = useQuery({
     queryKey: ['day', baby?.id, day],
@@ -19,7 +21,7 @@ export default function Totals() {
     enabled: !!baby,
   });
   const s = q.data;
-  const isToday = day === localDateString();
+  const isToday = day === effectiveToday;
 
   return (
     <ScrollView contentContainerStyle={{ padding: spacing.lg }}>
@@ -27,7 +29,7 @@ export default function Totals() {
         <Pressable style={styles.navBtn} onPress={() => setDay(addDays(day, -1))}>
           <Text style={styles.navBtnText}>‹</Text>
         </Pressable>
-        <Text style={styles.dayTitle}>{fmtDateHeading(day)}</Text>
+        <Text style={styles.dayTitle}>{fmtDateHeading(day, effectiveToday)}</Text>
         <Pressable
           style={[styles.navBtn, isToday && { opacity: 0.3 }]}
           disabled={isToday}

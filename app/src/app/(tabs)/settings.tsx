@@ -86,6 +86,23 @@ export default function Settings() {
     }
   };
 
+  const [dayStartHour, setDayStartHour] = useState(0);
+  useEffect(() => {
+    const ds = meQ.data?.family.day_start ?? '00:00';
+    setDayStartHour(Number(ds.split(':')[0]) || 0);
+  }, [meQ.data?.family.day_start]);
+
+  const saveDayStart = async (h: number) => {
+    const hour = Math.min(23, Math.max(0, Math.round(h)));
+    setDayStartHour(hour);
+    try {
+      await api.updateFamily({ day_start: `${String(hour).padStart(2, '0')}:00` });
+      qc.invalidateQueries();
+    } catch (e: any) {
+      Alert.alert('Could not save', e.message);
+    }
+  };
+
   const invitePartner = async () => {
     try {
       const invite = await api.createInvite();
@@ -205,6 +222,10 @@ export default function Settings() {
           </Text>
         ))}
         <Muted style={{ marginTop: 4 }}>Timezone: {meQ.data?.family.timezone}</Muted>
+        <Text style={[styles.label, { marginTop: spacing.md }]}>
+          Our day starts at (Today & Totals reset here, not midnight)
+        </Text>
+        <Stepper value={dayStartHour} onChange={saveDayStart} step={1} suffix=":00" />
         <Button
           title="Invite partner"
           variant="secondary"

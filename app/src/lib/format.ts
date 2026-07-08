@@ -16,10 +16,26 @@ export function localDateString(d: Date = new Date()): string {
   return `${y}-${m}-${day}`;
 }
 
-export function fmtDateHeading(dateStr: string): string {
-  const today = localDateString();
+/** The family's current "day": before day_start (e.g. 08:00) it's still
+ * yesterday's date. */
+export function effectiveDayString(dayStart: string): string {
+  const [h, m] = (dayStart || '00:00').split(':').map(Number);
+  const now = new Date();
+  const cutoff = new Date(now);
+  cutoff.setHours(h || 0, m || 0, 0, 0);
+  if (now < cutoff) {
+    const d = new Date(now);
+    d.setDate(d.getDate() - 1);
+    return localDateString(d);
+  }
+  return localDateString(now);
+}
+
+export function fmtDateHeading(dateStr: string, effectiveToday?: string): string {
+  const today = effectiveToday ?? localDateString();
   if (dateStr === today) return 'Today';
-  const yest = new Date();
+  const [y0, m0, d0] = today.split('-').map(Number);
+  const yest = new Date(y0, m0 - 1, d0);
   yest.setDate(yest.getDate() - 1);
   if (dateStr === localDateString(yest)) return 'Yesterday';
   const [y, m, d] = dateStr.split('-').map(Number);

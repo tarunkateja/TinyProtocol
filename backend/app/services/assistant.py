@@ -6,7 +6,7 @@ quotes what comes back. The system prompt enforces the medical guardrails.
 """
 
 import json
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 
 from openai import OpenAI
 
@@ -123,14 +123,16 @@ first person from the parent. The parent will review and send it themselves.
 minimal and factual, and never speculate about causes of symptoms."""
 
 
-def _run_tool(name: str, tool_input: dict, baby: Baby, tz_name: str) -> str:
+def _run_tool(
+    name: str, tool_input: dict, baby: Baby, tz_name: str, day_start: time = time.min
+) -> str:
     now = datetime.now(timezone.utc)
     if name == "get_day_summary":
         try:
             day = date.fromisoformat(str(tool_input.get("date", "")))
         except ValueError:
             return json.dumps({"error": "date must be YYYY-MM-DD"})
-        window_from, window_to = day_window(day, tz_name)
+        window_from, window_to = day_window(day, tz_name, day_start)
         summary = summarize_window(baby, window_from, window_to, tz_name, day=day)
     elif name == "get_recent_summary":
         try:
@@ -146,7 +148,11 @@ def _run_tool(name: str, tool_input: dict, baby: Baby, tz_name: str) -> str:
 
 
 def chat(
-    baby: Baby, tz_name: str, parent_name: str, messages: list[dict]
+    baby: Baby,
+    tz_name: str,
+    parent_name: str,
+    messages: list[dict],
+    day_start: time = time.min,
 ) -> str:
     """Run the tool-use loop and return the assistant's final text reply."""
     client = _client()
@@ -193,7 +199,9 @@ def chat(
                 {
                     "role": "tool",
                     "tool_call_id": tc.id,
-                    "content": _run_tool(tc.function.name, args, baby, tz_name),
+                    "content": _run_tool(
+                        tc.function.name, args, baby, tz_name, day_start
+                    ),
                 }
             )
 

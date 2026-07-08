@@ -2,6 +2,11 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { api } from './api';
 
+export function useFamily() {
+  const q = useQuery({ queryKey: ['me'], queryFn: api.me });
+  return { family: q.data?.family ?? null, ...q };
+}
+
 export function useBaby() {
   const q = useQuery({ queryKey: ['babies'], queryFn: api.listBabies });
   return { baby: q.data?.[0] ?? null, ...q };

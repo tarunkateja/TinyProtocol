@@ -89,6 +89,8 @@ export const api = {
     post<TokenResponse>('/auth/join', body),
   createInvite: () => post<{ code: string; expires_at: string }>('/auth/invites'),
   me: () => get<{ user: TokenResponse['user']; family: Family }>('/me'),
+  updateFamily: (body: Partial<Pick<Family, 'name' | 'timezone' | 'day_start'>>) =>
+    patch<Family>('/family', body),
 
   // babies
   listBabies: () => get<Baby[]>('/babies'),

@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, time, timezone
 
 import openai
 from fastapi import APIRouter, Depends, HTTPException
@@ -51,9 +51,11 @@ def _run_reply(user: CurrentUser, chat: Chat, content: str) -> ChatReply:
     chat.messages.append(ChatMessage(role="user", content=content, at=now))
     history = [{"role": m.role, "content": m.content} for m in chat.messages]
 
+    day_start = time.fromisoformat((fam or {}).get("day_start") or "00:00")
     try:
         reply = assistant.chat(
-            baby, fam["timezone"] if fam else "UTC", parent_name, history
+            baby, fam["timezone"] if fam else "UTC", parent_name, history,
+            day_start=day_start,
         )
     except openai.APIStatusError as e:
         raise HTTPException(502, f"Assistant is unavailable right now ({e.status_code})")

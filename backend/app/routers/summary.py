@@ -13,11 +13,15 @@ from app.services.tz import day_window, since_local
 router = APIRouter(tags=["summary"])
 
 
-def _family_tz(family_id: str) -> str:
+def _family(family_id: str) -> dict:
     fam = families.get_family(family_id)
     if fam is None:
         raise HTTPException(404, "Family not found")
-    return fam["timezone"]
+    return fam
+
+
+def _family_tz(family_id: str) -> str:
+    return _family(family_id)["timezone"]
 
 
 @router.get("/babies/{baby_id}/summary", response_model=Summary)
@@ -50,8 +54,10 @@ def rolling_summary(
 def day_summary(
     baby_id: str, day: date, user: CurrentUser = Depends(get_current_user)
 ):
-    """Totals vs targets for one local calendar day (family timezone)."""
+    """Totals vs targets for one local day (family timezone + day-start)."""
     baby = get_baby_or_404(user, baby_id)
-    tz_name = _family_tz(user.family_id)
-    window_from, window_to = day_window(day, tz_name)
+    fam = _family(user.family_id)
+    tz_name = fam["timezone"]
+    day_start = time.fromisoformat(fam.get("day_start") or "00:00")
+    window_from, window_to = day_window(day, tz_name, day_start)
     return summarize_window(baby, window_from, window_to, tz_name, day=day)

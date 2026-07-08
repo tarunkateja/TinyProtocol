@@ -187,3 +187,13 @@ def test_food_sources_seeded(auth_client):
     assert "USDA FoodData Central" in bm["source_name"]
     assert bm["source_url"].startswith("https://fdc.nal.usda.gov")
     assert "GA1 metabolic formula (prepared)" in foods
+
+
+def test_family_day_start_shifts_day_window(auth_client):
+    c = auth_client
+    r = c.patch("/v1/family", json={"day_start": "08:00"})
+    assert r.status_code == 200 and r.json()["day_start"] == "08:00"
+    # The day bucket now starts at 8am local (EDT = UTC-4 in July).
+    s = c.get(f"/v1/babies/{c.baby_id}/days/2026-07-07").json()
+    assert s["window_from"].startswith("2026-07-07T12:00:00")
+    assert c.patch("/v1/family", json={"day_start": "8am"}).status_code == 422

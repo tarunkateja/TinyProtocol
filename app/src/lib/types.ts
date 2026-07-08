@@ -224,5 +224,6 @@ export interface Family {
   id: string;
   name?: string | null;
   timezone: string;
+  day_start: string; // "HH:MM" — when the family's day begins
   members: { email: string; name: string; role: string }[];
 }

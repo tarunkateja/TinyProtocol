@@ -12,13 +12,13 @@ import {
 } from 'react-native';
 
 import { api } from '../../lib/api';
-import { fmtNum, fmtTime, localDateString } from '../../lib/format';
+import { effectiveDayString, fmtNum, fmtTime } from '../../lib/format';
 import {
   FeedRhythm,
   nextFeedDue,
   syncFeedReminder,
 } from '../../lib/feedReminder';
-import { useBaby, useInvalidateLogs } from '../../lib/hooks';
+import { useBaby, useFamily, useInvalidateLogs } from '../../lib/hooks';
 import { colors, eventTheme, fonts, radius, spacing } from '../../lib/theme';
 import type { CareEvent, Feed, TimelineEntry } from '../../lib/types';
 import { Button, Card, Field, Muted } from '../../components/ui';
@@ -26,9 +26,10 @@ import { Button, Card, Field, Muted } from '../../components/ui';
 export default function Today() {
   const router = useRouter();
   const { baby, isLoading } = useBaby();
+  const { family } = useFamily();
   const invalidate = useInvalidateLogs();
 
-  const today = localDateString();
+  const today = effectiveDayString(family?.day_start ?? '00:00');
   const dayQ = useQuery({
     queryKey: ['day', baby?.id, today],
     queryFn: () => api.daySummary(baby!.id, today),
