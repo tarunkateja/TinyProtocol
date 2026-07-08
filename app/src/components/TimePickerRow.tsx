@@ -45,6 +45,8 @@ export function TimePickerRow({
           value={value}
           mode="datetime"
           display="spinner"
+          themeVariant="light"
+          textColor={colors.text}
           maximumDate={new Date()}
           onChange={(_, d) => d && onChange(d)}
         />

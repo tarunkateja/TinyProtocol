@@ -241,6 +241,8 @@ export default function Reminders() {
           value={dailyTime}
           mode="time"
           display="spinner"
+          themeVariant="light"
+          textColor={colors.text}
           onChange={(_, d) => d && setDailyTime(d)}
         />
         <Button title="Add daily reminder" onPress={addDaily} />
