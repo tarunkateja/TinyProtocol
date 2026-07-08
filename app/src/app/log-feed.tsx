@@ -1,18 +1,23 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { api } from '../lib/api';
 import { fmtNum } from '../lib/format';
 import { useBaby, useFoods, useInvalidateLogs } from '../lib/hooks';
 import { colors, eventTheme, fonts, radius, spacing } from '../lib/theme';
-import type { Feed, FeedComponentIn, FeedPreset, Food } from '../lib/types';
+import type { FeedComponentIn, FeedPreset, Food } from '../lib/types';
 import { Button, Card, Chip, Field, Muted, SectionTitle, Stepper } from '../components/ui';
 import { SessionTimer } from '../components/SessionTimer';
 import { TimePickerRow } from '../components/TimePickerRow';
 
 type Mode = 'bottle' | 'latch';
+type BottleMode = 'breast_milk' | 'formula' | 'ga1' | 'mixed' | 'custom';
+
+const RECIPE_KEY = 'tinyprotocol_mix_recipe';
+const DEFAULT_RECIPE = { bm: 40, ga1: 20 };
 
 export default function LogFeed() {
   const router = useRouter();
@@ -23,10 +28,18 @@ export default function LogFeed() {
   const presetsQ = useQuery({ queryKey: ['feedPresets'], queryFn: api.listFeedPresets });
 
   const [mode, setMode] = useState<Mode>('bottle');
+  const [bottleMode, setBottleMode] = useState<BottleMode>('mixed');
   const [when, setWhen] = useState(new Date());
   const [notes, setNotes] = useState('');
   const [busy, setBusy] = useState(false);
 
+  // Simple modes: one amount. Mixed: one total + a saved ratio.
+  const [singleMl, setSingleMl] = useState(0);
+  const [mixTotal, setMixTotal] = useState(0);
+  const [recipe, setRecipe] = useState(DEFAULT_RECIPE);
+  const [showRecipe, setShowRecipe] = useState(false);
+
+  // Custom mode: the full per-food builder.
   const [liquidMl, setLiquidMl] = useState<Record<string, number>>({});
   const [powderScoops, setPowderScoops] = useState<Record<string, number>>({});
 
@@ -34,11 +47,35 @@ export default function LogFeed() {
   const [rate, setRate] = useState<number | null>(null);
   const [measuredMl, setMeasuredMl] = useState(0);
 
+  useEffect(() => {
+    AsyncStorage.getItem(RECIPE_KEY).then((raw) => {
+      const r = raw ? JSON.parse(raw) : DEFAULT_RECIPE;
+      setRecipe(r);
+      setMixTotal(r.bm + r.ga1); // full bottle by default
+    });
+  }, []);
+
+  const saveRecipe = (r: { bm: number; ga1: number }) => {
+    setRecipe(r);
+    AsyncStorage.setItem(RECIPE_KEY, JSON.stringify(r));
+  };
+
   const liquids = foods.filter((f) => f.unit_basis === 'per_100ml');
   const powders = foods.filter((f) => f.unit_basis === 'per_scoop');
-  const breastMilkFood = liquids.find((f) => f.category === 'breast_milk');
+  const bmFood = liquids.find((f) => f.category === 'breast_milk');
+  const formulaFood = liquids.find((f) => f.category === 'formula');
+  const ga1Food = liquids.find((f) => f.category === 'metabolic_formula');
+  const breastMilkFood = bmFood;
   const effectiveRate = rate ?? baby?.default_latch_rate_ml_per_10min ?? 20;
   const latchEstimate = measuredMl > 0 ? measuredMl : (minutes * effectiveRate) / 10;
+
+  // Mixed: split the total by the saved ratio, keeping the sum exact.
+  const mixSplit = useMemo(() => {
+    const parts = recipe.bm + recipe.ga1;
+    if (mixTotal <= 0 || parts <= 0) return null;
+    const bm = Math.round(((mixTotal * recipe.bm) / parts) * 10) / 10;
+    return { bm, ga1: Math.round((mixTotal - bm) * 10) / 10 };
+  }, [mixTotal, recipe]);
 
   const components: FeedComponentIn[] = useMemo(() => {
     if (mode === 'latch') {
@@ -53,6 +90,27 @@ export default function LogFeed() {
         },
       ];
     }
+    if (bottleMode === 'breast_milk')
+      return bmFood && singleMl > 0
+        ? [{ kind: 'liquid', food_id: bmFood.id, volume_ml: singleMl }]
+        : [];
+    if (bottleMode === 'formula')
+      return formulaFood && singleMl > 0
+        ? [{ kind: 'liquid', food_id: formulaFood.id, volume_ml: singleMl }]
+        : [];
+    if (bottleMode === 'ga1')
+      return ga1Food && singleMl > 0
+        ? [{ kind: 'liquid', food_id: ga1Food.id, volume_ml: singleMl }]
+        : [];
+    if (bottleMode === 'mixed') {
+      if (!bmFood || !ga1Food || !mixSplit) return [];
+      const out: FeedComponentIn[] = [];
+      if (mixSplit.bm > 0) out.push({ kind: 'liquid', food_id: bmFood.id, volume_ml: mixSplit.bm });
+      if (mixSplit.ga1 > 0)
+        out.push({ kind: 'liquid', food_id: ga1Food.id, volume_ml: mixSplit.ga1 });
+      return out;
+    }
+    // custom
     const out: FeedComponentIn[] = [];
     for (const f of liquids)
       if (liquidMl[f.id] > 0) out.push({ kind: 'liquid', food_id: f.id, volume_ml: liquidMl[f.id] });
@@ -60,7 +118,11 @@ export default function LogFeed() {
       if (powderScoops[f.id] > 0)
         out.push({ kind: 'powder', food_id: f.id, scoops: powderScoops[f.id] });
     return out;
-  }, [mode, liquids, powders, liquidMl, powderScoops, minutes, effectiveRate, measuredMl, breastMilkFood]);
+  }, [
+    mode, bottleMode, singleMl, mixSplit, bmFood, formulaFood, ga1Food,
+    liquids, powders, liquidMl, powderScoops,
+    minutes, effectiveRate, measuredMl, breastMilkFood,
+  ]);
 
   const preview = useMemo(() => {
     let ml = 0, protein = 0, lysine = 0;
@@ -81,6 +143,7 @@ export default function LogFeed() {
 
   const applyPreset = (preset: FeedPreset) => {
     setMode('bottle');
+    setBottleMode('custom');
     const liquid: Record<string, number> = {};
     const powder: Record<string, number> = {};
     for (const c of preset.components) {
@@ -150,6 +213,15 @@ export default function LogFeed() {
   };
 
   const feedColor = eventTheme.feed.color;
+  const feedSoft = eventTheme.feed.soft;
+
+  const BOTTLE_OPTIONS: { key: BottleMode; label: string; disabled?: boolean }[] = [
+    { key: 'breast_milk', label: '🍼 Breast milk', disabled: !bmFood },
+    { key: 'formula', label: '🥫 Formula', disabled: !formulaFood },
+    { key: 'ga1', label: '⚗️ GA1', disabled: !ga1Food },
+    { key: 'mixed', label: '🧪 Mixed', disabled: !bmFood || !ga1Food },
+    { key: 'custom', label: '⋯ Custom' },
+  ];
 
   return (
     <ScrollView
@@ -158,52 +230,126 @@ export default function LogFeed() {
       keyboardShouldPersistTaps="handled"
     >
       <View style={{ flexDirection: 'row', marginBottom: spacing.sm }}>
-        <Chip label="🍼 Bottle" selected={mode === 'bottle'} onPress={() => setMode('bottle')} color={feedColor} softColor={eventTheme.feed.soft} />
-        <Chip label="🤱 Latch" selected={mode === 'latch'} onPress={() => setMode('latch')} color={feedColor} softColor={eventTheme.feed.soft} />
+        <Chip label="🍼 Bottle" selected={mode === 'bottle'} onPress={() => setMode('bottle')} color={feedColor} softColor={feedSoft} />
+        <Chip label="🤱 Latch" selected={mode === 'latch'} onPress={() => setMode('latch')} color={feedColor} softColor={feedSoft} />
       </View>
 
       {mode === 'bottle' ? (
         <>
-          {(presetsQ.data?.length ?? 0) > 0 && (
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginBottom: spacing.xs }}>
-              {presetsQ.data!.map((p) => (
-                <Pressable
-                  key={p.id}
-                  style={styles.presetChip}
-                  onPress={() => applyPreset(p)}
-                  onLongPress={() => deletePreset(p)}
-                >
-                  <Text style={styles.presetText}>⚡ {p.name}</Text>
-                </Pressable>
-              ))}
-            </View>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
+            {BOTTLE_OPTIONS.filter((o) => !o.disabled).map((o) => (
+              <Chip
+                key={o.key}
+                label={o.label}
+                selected={bottleMode === o.key}
+                onPress={() => setBottleMode(o.key)}
+                color={feedColor}
+                softColor={feedSoft}
+              />
+            ))}
+          </View>
+
+          {bottleMode === 'mixed' && (
+            <Card>
+              <Text style={styles.fieldLabel}>Total amount she drank</Text>
+              <Stepper value={mixTotal} onChange={setMixTotal} step={5} suffix="ml" />
+              {mixSplit && (
+                <Text style={[styles.splitLine, { color: feedColor }]}>
+                  = {fmtNum(mixSplit.bm)} ml breast milk + {fmtNum(mixSplit.ga1)} ml GA1
+                </Text>
+              )}
+              <Pressable onPress={() => setShowRecipe(!showRecipe)}>
+                <Text style={styles.linkText}>
+                  Mix ratio: {fmtNum(recipe.bm)} : {fmtNum(recipe.ga1)} (breast milk : GA1) —{' '}
+                  {showRecipe ? 'done' : 'change'}
+                </Text>
+              </Pressable>
+              {showRecipe && (
+                <View style={{ flexDirection: 'row', gap: spacing.md, marginTop: spacing.sm }}>
+                  <View style={{ flex: 1 }}>
+                    <Muted style={{ marginBottom: 4 }}>breast milk part</Muted>
+                    <Stepper
+                      value={recipe.bm}
+                      onChange={(v) => saveRecipe({ ...recipe, bm: Math.max(0, v) })}
+                      step={5}
+                      suffix="ml"
+                    />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Muted style={{ marginBottom: 4 }}>GA1 part</Muted>
+                    <Stepper
+                      value={recipe.ga1}
+                      onChange={(v) => saveRecipe({ ...recipe, ga1: Math.max(0, v) })}
+                      step={5}
+                      suffix="ml"
+                    />
+                  </View>
+                </View>
+              )}
+              <Muted style={{ marginTop: spacing.sm }}>
+                The split keeps lysine and volume targets exact. Ratio is remembered —
+                update it when the metabolic team changes the mix.
+              </Muted>
+            </Card>
           )}
-          <SectionTitle>What's in the bottle?</SectionTitle>
-          {liquids.map((f) => (
-            <FoodAmountRow
-              key={f.id}
-              food={f}
-              suffix="ml"
-              step={10}
-              value={liquidMl[f.id] ?? 0}
-              onChange={(v) => setLiquidMl((s) => ({ ...s, [f.id]: v }))}
-            />
-          ))}
-          <SectionTitle>Powder mixed in (scoops)</SectionTitle>
-          {powders.map((f) => (
-            <FoodAmountRow
-              key={f.id}
-              food={f}
-              suffix="scoops"
-              step={0.5}
-              value={powderScoops[f.id] ?? 0}
-              onChange={(v) => setPowderScoops((s) => ({ ...s, [f.id]: v }))}
-            />
-          ))}
-          {components.length > 0 && (
-            <Pressable onPress={savePreset}>
-              <Text style={styles.saveMix}>💾 Save this mix as a preset</Text>
-            </Pressable>
+
+          {(bottleMode === 'breast_milk' || bottleMode === 'formula' || bottleMode === 'ga1') && (
+            <Card>
+              <Text style={styles.fieldLabel}>
+                {bottleMode === 'breast_milk'
+                  ? 'Breast milk (pumped)'
+                  : bottleMode === 'formula'
+                    ? formulaFood?.name
+                    : ga1Food?.name}
+              </Text>
+              <Stepper value={singleMl} onChange={setSingleMl} step={10} suffix="ml" />
+            </Card>
+          )}
+
+          {bottleMode === 'custom' && (
+            <>
+              {(presetsQ.data?.length ?? 0) > 0 && (
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginBottom: spacing.xs }}>
+                  {presetsQ.data!.map((p) => (
+                    <Pressable
+                      key={p.id}
+                      style={styles.presetChip}
+                      onPress={() => applyPreset(p)}
+                      onLongPress={() => deletePreset(p)}
+                    >
+                      <Text style={styles.presetText}>⚡ {p.name}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+              )}
+              <SectionTitle>Liquids (ml)</SectionTitle>
+              {liquids.map((f) => (
+                <FoodAmountRow
+                  key={f.id}
+                  food={f}
+                  suffix="ml"
+                  step={10}
+                  value={liquidMl[f.id] ?? 0}
+                  onChange={(v) => setLiquidMl((s) => ({ ...s, [f.id]: v }))}
+                />
+              ))}
+              <SectionTitle>Powder mixed in (scoops)</SectionTitle>
+              {powders.map((f) => (
+                <FoodAmountRow
+                  key={f.id}
+                  food={f}
+                  suffix="scoops"
+                  step={0.5}
+                  value={powderScoops[f.id] ?? 0}
+                  onChange={(v) => setPowderScoops((s) => ({ ...s, [f.id]: v }))}
+                />
+              ))}
+              {components.length > 0 && (
+                <Pressable onPress={savePreset}>
+                  <Text style={styles.linkText}>💾 Save this mix as a preset</Text>
+                </Pressable>
+              )}
+            </>
           )}
         </>
       ) : (
@@ -281,6 +427,18 @@ const styles = StyleSheet.create({
     fontFamily: fonts.heavy,
     textAlign: 'center',
   },
+  splitLine: {
+    fontSize: 15,
+    fontFamily: fonts.heavy,
+    textAlign: 'center',
+    marginVertical: spacing.sm,
+  },
+  linkText: {
+    color: colors.primary,
+    fontFamily: fonts.bold,
+    fontSize: 14,
+    marginTop: spacing.xs,
+  },
   presetChip: {
     backgroundColor: eventTheme.feed.soft,
     borderRadius: radius.pill,
@@ -292,11 +450,4 @@ const styles = StyleSheet.create({
     marginBottom: spacing.sm,
   },
   presetText: { color: colors.text, fontFamily: fonts.bold, fontSize: 14 },
-  saveMix: {
-    color: colors.primary,
-    fontFamily: fonts.bold,
-    fontSize: 14,
-    marginTop: spacing.xs,
-    marginBottom: spacing.sm,
-  },
 });
