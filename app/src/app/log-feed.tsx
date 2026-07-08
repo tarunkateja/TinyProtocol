@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
@@ -21,6 +21,8 @@ const DEFAULT_RECIPE = { bm: 40, ga1: 20 };
 
 export default function LogFeed() {
   const router = useRouter();
+  const { feedId } = useLocalSearchParams<{ feedId?: string }>();
+  const editing = !!feedId;
   const qc = useQueryClient();
   const { baby } = useBaby();
   const { foods } = useFoods();
@@ -51,9 +53,39 @@ export default function LogFeed() {
     AsyncStorage.getItem(RECIPE_KEY).then((raw) => {
       const r = raw ? JSON.parse(raw) : DEFAULT_RECIPE;
       setRecipe(r);
-      setMixTotal(r.bm + r.ga1); // full bottle by default
+      if (!feedId) setMixTotal(r.bm + r.ga1); // full bottle by default
     });
   }, []);
+
+  // Editing: load the feed and prefill everything.
+  useEffect(() => {
+    if (!feedId) return;
+    api
+      .getFeed(feedId)
+      .then((feed) => {
+        setWhen(new Date(feed.occurred_at));
+        setNotes(feed.notes ?? '');
+        const latch = feed.components.find((c) => c.kind === 'latch');
+        if (latch && feed.components.length === 1) {
+          setMode('latch');
+          setMinutes(latch.minutes ?? 10);
+          setRate(latch.rate_ml_per_10min ?? null);
+          setMeasuredMl(latch.measured_ml ?? 0);
+        } else {
+          setMode('bottle');
+          setBottleMode('custom');
+          const l: Record<string, number> = {};
+          const pw: Record<string, number> = {};
+          for (const c of feed.components) {
+            if (c.kind === 'liquid') l[c.food_id] = c.volume_ml ?? 0;
+            if (c.kind === 'powder') pw[c.food_id] = c.scoops ?? 0;
+          }
+          setLiquidMl(l);
+          setPowderScoops(pw);
+        }
+      })
+      .catch((e) => Alert.alert('Could not load feed', e.message));
+  }, [feedId]);
 
   const saveRecipe = (r: { bm: number; ga1: number }) => {
     setRecipe(r);
@@ -199,11 +231,19 @@ export default function LogFeed() {
     if (!baby || components.length === 0) return;
     setBusy(true);
     try {
-      await api.createFeed(baby.id, {
-        occurred_at: when.toISOString(),
-        components,
-        notes: notes.trim() || undefined,
-      });
+      if (editing) {
+        await api.updateFeed(feedId!, {
+          occurred_at: when.toISOString(),
+          components,
+          notes: notes.trim(),
+        });
+      } else {
+        await api.createFeed(baby.id, {
+          occurred_at: when.toISOString(),
+          components,
+          notes: notes.trim() || undefined,
+        });
+      }
       invalidate();
       router.back();
     } catch (e: any) {
@@ -380,7 +420,12 @@ export default function LogFeed() {
           {fmtNum(preview.ml)} ml · {fmtNum(preview.protein, 2)} g protein · {fmtNum(preview.lysine)} mg lysine
         </Muted>
       )}
-      <Button title="Save feed" onPress={save} loading={busy} disabled={components.length === 0} />
+      <Button
+        title={editing ? 'Save changes' : 'Save feed'}
+        onPress={save}
+        loading={busy}
+        disabled={components.length === 0}
+      />
     </ScrollView>
   );
 }

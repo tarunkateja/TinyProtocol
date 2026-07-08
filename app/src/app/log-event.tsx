@@ -1,5 +1,5 @@
-import { useRouter } from 'expo-router';
-import React, { useState } from 'react';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import React, { useEffect, useState } from 'react';
 import { Alert, ScrollView, Text, View } from 'react-native';
 
 import { api } from '../lib/api';
@@ -24,6 +24,8 @@ const SEVERITIES: Severity[] = ['small', 'medium', 'large'];
 
 export default function LogEvent() {
   const router = useRouter();
+  const { eventId } = useLocalSearchParams<{ eventId?: string }>();
+  const editing = !!eventId;
   const { baby } = useBaby();
   const { presets } = useMedPresets();
   const invalidate = useInvalidateLogs();
@@ -41,6 +43,26 @@ export default function LogEvent() {
   const [when, setWhen] = useState(new Date());
   const [busy, setBusy] = useState(false);
 
+  useEffect(() => {
+    if (!eventId) return;
+    api
+      .getEvent(eventId)
+      .then((ev) => {
+        setType(ev.type);
+        setWhen(new Date(ev.occurred_at));
+        if (ev.severity) setSeverity(ev.severity);
+        if (ev.med_name) setMedName(ev.med_name);
+        if (ev.dose_amount) setDose(ev.dose_amount);
+        if (ev.dose_unit) setDoseUnit(ev.dose_unit);
+        if (ev.pumped_ml) setPumpedMl(ev.pumped_ml);
+        if (ev.side) setSide(ev.side);
+        if (ev.duration_minutes) setPumpMinutes(ev.duration_minutes);
+        if (ev.diaper_kind) setDiaperKind(ev.diaper_kind);
+        if (ev.note) setNote(ev.note);
+      })
+      .catch((e) => Alert.alert('Could not load event', e.message));
+  }, [eventId]);
+
   const theme = eventTheme[type] ?? eventTheme.note;
   const needsSeverity = type === 'spit_up' || type === 'vomit';
   const canSave =
@@ -56,7 +78,7 @@ export default function LogEvent() {
     if (!baby) return;
     setBusy(true);
     try {
-      await api.createEvent(baby.id, {
+      const body = {
         occurred_at: when.toISOString(),
         type,
         severity: needsSeverity ? severity : undefined,
@@ -68,7 +90,13 @@ export default function LogEvent() {
         duration_minutes: type === 'pumping' && pumpMinutes > 0 ? pumpMinutes : undefined,
         diaper_kind: type === 'diaper' ? diaperKind : undefined,
         note: note.trim() || undefined,
-      });
+      };
+      if (editing) {
+        const { type: _t, ...patch } = body; // type can't change on edit
+        await api.updateEvent(eventId!, patch);
+      } else {
+        await api.createEvent(baby.id, body);
+      }
       invalidate();
       router.back();
     } catch (e: any) {
@@ -84,7 +112,7 @@ export default function LogEvent() {
       keyboardShouldPersistTaps="handled"
     >
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginBottom: spacing.sm }}>
-        {TYPES.map((t) => {
+        {(editing ? TYPES.filter((t) => t === type) : TYPES).map((t) => {
           const th = eventTheme[t];
           return (
             <Chip
@@ -221,7 +249,12 @@ export default function LogEvent() {
       {type === 'pumping' && pumpedMl <= 0 && (
         <Muted style={{ marginBottom: spacing.sm }}>Enter how much you pumped.</Muted>
       )}
-      <Button title="Save event" onPress={save} loading={busy} disabled={!canSave} />
+      <Button
+        title={editing ? 'Save changes' : 'Save event'}
+        onPress={save}
+        loading={busy}
+        disabled={!canSave}
+      />
     </ScrollView>
   );
 }

@@ -153,9 +153,17 @@ export default function Today() {
         }
         renderItem={({ item }) =>
           item.item_type === 'FEED' ? (
-            <FeedRow feed={item} onLongPress={() => confirmDelete(item)} />
+            <FeedRow
+              feed={item}
+              onPress={() => router.push({ pathname: '/log-feed', params: { feedId: item.id } })}
+              onLongPress={() => confirmDelete(item)}
+            />
           ) : (
-            <EventRow event={item} onLongPress={() => confirmDelete(item)} />
+            <EventRow
+              event={item}
+              onPress={() => router.push({ pathname: '/log-event', params: { eventId: item.id } })}
+              onLongPress={() => confirmDelete(item)}
+            />
           )
         }
       />
@@ -201,17 +209,19 @@ function EntryCard({
   theme,
   title,
   time,
+  onPress,
   onLongPress,
   children,
 }: {
   theme: { color: string; soft: string; icon: string };
   title: string;
   time: string;
+  onPress: () => void;
   onLongPress: () => void;
   children?: React.ReactNode;
 }) {
   return (
-    <Pressable onLongPress={onLongPress}>
+    <Pressable onPress={onPress} onLongPress={onLongPress}>
       <View style={[styles.entry, { borderLeftColor: theme.color }]}>
         <View style={[styles.iconChip, { backgroundColor: theme.soft }]}>
           <Text style={{ fontSize: 17 }}>{theme.icon}</Text>
@@ -228,7 +238,15 @@ function EntryCard({
   );
 }
 
-function FeedRow({ feed, onLongPress }: { feed: Feed; onLongPress: () => void }) {
+function FeedRow({
+  feed,
+  onPress,
+  onLongPress,
+}: {
+  feed: Feed;
+  onPress: () => void;
+  onLongPress: () => void;
+}) {
   const desc = feed.components
     .map((c) => {
       if (c.kind === 'liquid') return `${fmtNum(c.volume_ml)}ml ${c.food_name}`;
@@ -241,6 +259,7 @@ function FeedRow({ feed, onLongPress }: { feed: Feed; onLongPress: () => void })
       theme={eventTheme.feed}
       title={`${fmtNum(feed.totals.total_ml)} ml feed`}
       time={fmtTime(feed.occurred_at)}
+      onPress={onPress}
       onLongPress={onLongPress}
     >
       <Text style={styles.rowDesc}>{desc}</Text>
@@ -254,7 +273,15 @@ function FeedRow({ feed, onLongPress }: { feed: Feed; onLongPress: () => void })
   );
 }
 
-function EventRow({ event, onLongPress }: { event: CareEvent; onLongPress: () => void }) {
+function EventRow({
+  event,
+  onPress,
+  onLongPress,
+}: {
+  event: CareEvent;
+  onPress: () => void;
+  onLongPress: () => void;
+}) {
   const theme = eventTheme[event.type] ?? eventTheme.note;
   let title = theme.label;
   const bits: string[] = [];
@@ -275,6 +302,7 @@ function EventRow({ event, onLongPress }: { event: CareEvent; onLongPress: () =>
       theme={theme}
       title={title}
       time={fmtTime(event.occurred_at)}
+      onPress={onPress}
       onLongPress={onLongPress}
     >
       {bits.length > 0 && <Text style={styles.rowDesc}>{bits.join(' · ')}</Text>}

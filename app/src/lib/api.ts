@@ -120,9 +120,17 @@ export const api = {
     babyId: string,
     body: { occurred_at: string; components: FeedComponentIn[]; notes?: string },
   ) => post<Feed>(`/babies/${babyId}/feeds`, body),
+  getFeed: (id: string) => get<Feed>(`/feeds/${id}`),
+  updateFeed: (
+    id: string,
+    body: { occurred_at?: string; components?: FeedComponentIn[]; notes?: string },
+  ) => patch<Feed>(`/feeds/${id}`, body),
   deleteFeed: (id: string) => del<void>(`/feeds/${id}`),
   createEvent: (babyId: string, body: Partial<CareEvent> & { occurred_at: string; type: string }) =>
     post<CareEvent>(`/babies/${babyId}/events`, body),
+  getEvent: (id: string) => get<CareEvent>(`/events/${id}`),
+  updateEvent: (id: string, body: Partial<CareEvent>) =>
+    patch<CareEvent>(`/events/${id}`, body),
   deleteEvent: (id: string) => del<void>(`/events/${id}`),
 
   // assistant — shared family chat sessions

@@ -80,7 +80,10 @@ def update_event(
     event_id: str, body: EventUpdate, user: CurrentUser = Depends(get_current_user)
 ):
     raw, event = _find_event(event_id, user)
-    updated = event.model_copy(update=body.model_dump(exclude_unset=True))
+    # Re-validate the merged event so per-type field rules hold on PATCH too.
+    updated = Event.model_validate(
+        {**event.model_dump(), **body.model_dump(exclude_unset=True)}
+    )
     logs.replace_log(raw["PK"], raw["SK"], event_item(user.family_id, updated))
     return updated
 
