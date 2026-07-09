@@ -31,6 +31,17 @@ export function effectiveDayString(dayStart: string): string {
   return localDateString(now);
 }
 
+/** Which family-day (YYYY-MM-DD) a timestamp belongs to, honoring day_start
+ * (a 3am feed belongs to the previous day when the day starts at 8am). */
+export function effectiveDayOf(iso: string, dayStart: string): string {
+  const [h, m] = (dayStart || '00:00').split(':').map(Number);
+  const d = new Date(iso);
+  const cutoff = new Date(d);
+  cutoff.setHours(h || 0, m || 0, 0, 0);
+  if (d < cutoff) d.setDate(d.getDate() - 1);
+  return localDateString(d);
+}
+
 export function fmtDateHeading(dateStr: string, effectiveToday?: string): string {
   const today = effectiveToday ?? localDateString();
   if (dateStr === today) return 'Today';

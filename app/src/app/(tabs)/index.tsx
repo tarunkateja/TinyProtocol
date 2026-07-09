@@ -1,7 +1,8 @@
-import { useQuery } from '@tanstack/react-query';
+import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { useFocusEffect, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   FlatList,
   Pressable,
@@ -12,7 +13,7 @@ import {
 } from 'react-native';
 
 import { api } from '../../lib/api';
-import { effectiveDayString, fmtNum, fmtTime } from '../../lib/format';
+import { effectiveDayOf, effectiveDayString, fmtDateHeading, fmtNum, fmtTime } from '../../lib/format';
 import { DEFAULT_RHYTHMS, nextDue, syncRhythmNotification } from '../../lib/feedReminder';
 import { useBaby, useFamily, useInvalidateLogs } from '../../lib/hooks';
 import { colors, eventTheme, fonts, radius, spacing } from '../../lib/theme';
@@ -31,23 +32,49 @@ export default function Today() {
     queryFn: () => api.daySummary(baby!.id, today),
     enabled: !!baby,
   });
-  const timelineQ = useQuery({
+  const timelineQ = useInfiniteQuery({
     queryKey: ['timeline', baby?.id],
-    queryFn: () => api.timeline(baby!.id),
+    queryFn: ({ pageParam }) => api.timeline(baby!.id, { cursor: pageParam || undefined }),
+    initialPageParam: '',
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
     enabled: !!baby,
   });
 
+  const items = useMemo(
+    () => timelineQ.data?.pages.flatMap((p) => p.items) ?? [],
+    [timelineQ.data],
+  );
+
+  const dayStart = family?.day_start ?? '00:00';
+
+  // Rows = day headers + entries (gaps only within the same day).
+  const rows = useMemo(() => {
+    const out: Row[] = [];
+    let currentDay = '';
+    const effToday = effectiveDayString(dayStart);
+    items.forEach((item, i) => {
+      const day = effectiveDayOf(item.occurred_at, dayStart);
+      if (day !== currentDay) {
+        currentDay = day;
+        out.push({ kind: 'header', key: `h-${day}`, label: fmtDateHeading(day, effToday) });
+      }
+      const next = items[i + 1];
+      const sameDayNext =
+        next && effectiveDayOf(next.occurred_at, dayStart) === day ? next : undefined;
+      out.push({ kind: 'entry', key: item.id, item, next: sameDayNext });
+    });
+    return out;
+  }, [items, dayStart]);
+
   const lastFeedAt = useMemo(() => {
-    const feed = timelineQ.data?.items.find((i) => i.item_type === 'FEED');
+    const feed = items.find((i) => i.item_type === 'FEED');
     return feed?.occurred_at ?? null;
-  }, [timelineQ.data]);
+  }, [items]);
 
   const lastMedAt = useMemo(() => {
-    const med = timelineQ.data?.items.find(
-      (i) => i.item_type === 'EVENT' && i.type === 'medication',
-    );
+    const med = items.find((i) => i.item_type === 'EVENT' && i.type === 'medication');
     return med?.occurred_at ?? null;
-  }, [timelineQ.data]);
+  }, [items]);
 
   const rhythms = family?.rhythms ?? DEFAULT_RHYTHMS;
   const [, setTick] = useState(0);
@@ -102,12 +129,19 @@ export default function Today() {
         <Text style={styles.sosText}>🆘 Emergency</Text>
       </Pressable>
       <FlatList
-        data={timelineQ.data?.items ?? []}
-        keyExtractor={(item) => item.id}
+        data={rows}
+        keyExtractor={(row) => row.key}
         contentContainerStyle={{ padding: spacing.lg, paddingBottom: 120 }}
+        onEndReached={() => timelineQ.hasNextPage && timelineQ.fetchNextPage()}
+        onEndReachedThreshold={0.4}
+        ListFooterComponent={
+          timelineQ.isFetchingNextPage ? (
+            <ActivityIndicator color={colors.primary} style={{ marginVertical: spacing.md }} />
+          ) : null
+        }
         refreshControl={
           <RefreshControl
-            refreshing={timelineQ.isRefetching}
+            refreshing={timelineQ.isRefetching && !timelineQ.isFetchingNextPage}
             onRefresh={() => {
               timelineQ.refetch();
               dayQ.refetch();
@@ -169,8 +203,17 @@ export default function Today() {
             {timelineQ.isLoading ? 'Loading…' : 'No feeds or events logged yet.'}
           </Muted>
         }
-        renderItem={({ item, index }) => {
-          const next = timelineQ.data?.items[index + 1]; // older neighbour
+        renderItem={({ item: row }) => {
+          if (row.kind === 'header') {
+            return (
+              <View style={styles.dayHeader}>
+                <View style={styles.dayHeaderLine} />
+                <Text style={styles.dayHeaderText}>{row.label}</Text>
+                <View style={styles.dayHeaderLine} />
+              </View>
+            );
+          }
+          const { item, next } = row;
           return (
             <>
               {item.item_type === 'FEED' ? (
@@ -186,7 +229,11 @@ export default function Today() {
                   onLongPress={() => confirmDelete(item)}
                 />
               )}
-              {next && <TimeGap newer={item.occurred_at} older={next.occurred_at} />}
+              {next ? (
+                <TimeGap newer={item.occurred_at} older={next.occurred_at} />
+              ) : (
+                <View style={{ height: spacing.sm }} />
+              )}
             </>
           );
         }}
@@ -204,27 +251,21 @@ export default function Today() {
   );
 }
 
+type Row =
+  | { kind: 'header'; key: string; label: string }
+  | { kind: 'entry'; key: string; item: TimelineEntry; next?: TimelineEntry };
+
 /** Visual breathing room between entries, proportional to the elapsed time —
  * a burst of activity reads dense, a long overnight stretch reads long. */
 function TimeGap({ newer, older }: { newer: string; older: string }) {
   const mins = Math.max(0, (new Date(newer).getTime() - new Date(older).getTime()) / 60000);
   // 30m ≈ 18px … capped at ~80px for very long gaps.
   const height = Math.min(80, 6 + (mins / 60) * 24);
-  const newerDay = new Date(newer).toDateString();
-  const olderDay = new Date(older).toDateString();
-  const crossesDay = newerDay !== olderDay;
   return (
     <View style={styles.gapWrap}>
       <View style={[styles.gapLine, { height }]} />
       {mins >= 25 && (
         <Text style={styles.gapLabel}>{fmtCountdown(mins * 60000)} apart</Text>
-      )}
-      {crossesDay && (
-        <View style={styles.dayChip}>
-          <Text style={styles.dayChipText}>
-            {new Date(older).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })}
-          </Text>
-        </View>
       )}
     </View>
   );
@@ -513,16 +554,23 @@ const styles = StyleSheet.create({
     fontFamily: fonts.semibold,
     fontSize: 11,
   },
-  dayChip: {
-    backgroundColor: colors.card,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.pill,
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    marginTop: 4,
+  dayHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    marginVertical: spacing.sm,
   },
-  dayChipText: { color: colors.muted, fontFamily: fonts.bold, fontSize: 12 },
+  dayHeaderLine: { flex: 1, height: 1, backgroundColor: colors.border },
+  dayHeaderText: {
+    color: colors.text,
+    fontFamily: fonts.heavy,
+    fontSize: 14,
+    backgroundColor: colors.primarySoft,
+    borderRadius: radius.pill,
+    paddingHorizontal: 14,
+    paddingVertical: 5,
+    overflow: 'hidden',
+  },
   entry: {
     flexDirection: 'row',
     alignItems: 'flex-start',
