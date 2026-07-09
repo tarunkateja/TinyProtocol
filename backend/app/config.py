@@ -15,7 +15,7 @@ class Settings(BaseSettings):
 
     # Enables the AI assistant endpoints when set.
     openai_api_key: str = ""
-    assistant_model: str = "gpt-4o"
+    assistant_model: str = "gpt-5.5"
 
     # Care documents pipeline.
     docs_bucket: str = ""

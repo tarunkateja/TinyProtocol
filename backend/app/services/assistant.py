@@ -103,7 +103,9 @@ def _client() -> OpenAI:
     return OpenAI(api_key=settings.openai_api_key)
 
 
-def _system_prompt(baby: Baby, tz_name: str, parent_name: str) -> str:
+def _system_prompt(
+    baby: Baby, tz_name: str, parent_name: str, day_start: time = time.min
+) -> str:
     now_local = to_local(datetime.now(timezone.utc), tz_name)
     targets = []
     if baby.targets.lysine_mg_per_day:
@@ -120,6 +122,13 @@ Context:
 - Baby: {baby.name}. Conditions: {conditions}.
 - Daily intake targets from the family's metabolic team: {target_line}.
 - Current local time: {now_local.strftime('%A, %B %-d %Y, %-I:%M %p')} ({tz_name}).
+- TODAY'S DATE is {now_local.strftime('%Y-%m-%d')}. The family's day runs from \
+{day_start.strftime('%H:%M')} to {day_start.strftime('%H:%M')} the next morning — \
+get_day_summary('{now_local.strftime('%Y-%m-%d')}') covers that window.
+- Date arithmetic: "yesterday" = today minus 1 day; "last 3 days" = today, yesterday, \
+and the day before — call get_day_summary once for EACH date (compute exact YYYY-MM-DD \
+values from today's date above; never guess dates). Use get_recent_summary(hours=N) \
+only for rolling windows like "last 24 hours".
 - Direct-breastfeeding (latch) amounts in the logs are ESTIMATES from minutes × an \
 assumed rate unless marked as weighed. Note this when latch numbers are material to your answer.
 
@@ -223,14 +232,17 @@ def chat(
     """Run the tool-use loop and return the assistant's final text reply."""
     client = _client()
     convo: list[dict] = [
-        {"role": "system", "content": _system_prompt(baby, tz_name, parent_name)},
+        {"role": "system", "content": _system_prompt(baby, tz_name, parent_name, day_start)},
         *messages,
     ]
 
     for _ in range(MAX_TOOL_ROUNDS + 1):
         response = client.chat.completions.create(
             model=settings.assistant_model,
-            max_tokens=2048,
+            max_completion_tokens=3000,
+            # gpt-5.5 chat completions requires 'none' when function tools are
+            # used (also keeps the tool loop inside the 29s route budget).
+            reasoning_effort="none",
             tools=TOOLS,
             messages=convo,
         )

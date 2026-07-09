@@ -116,7 +116,8 @@ def _extract(data: bytes, content_type: str, filename: str) -> dict:
     client = OpenAI(api_key=settings.openai_api_key)
     response = client.chat.completions.create(
         model=settings.assistant_model,
-        max_tokens=3000,
+        max_completion_tokens=6000,
+        reasoning_effort="medium",
         response_format={"type": "json_schema", "json_schema": EXTRACTION_SCHEMA},
         messages=[
             {"role": "system", "content": PROMPT},
