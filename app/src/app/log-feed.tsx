@@ -122,7 +122,7 @@ export default function LogFeed() {
   const formulaFood = liquids.find((f) => f.category === 'formula');
   const ga1Food = liquids.find((f) => f.category === 'metabolic_formula');
   const breastMilkFood = bmFood;
-  const effectiveRate = rate ?? baby?.default_latch_rate_ml_per_10min ?? 20;
+  const effectiveRate = rate ?? baby?.default_latch_rate_ml_per_10min ?? 15;
   const latchEstimate = measuredMl > 0 ? measuredMl : (minutes * effectiveRate) / 10;
 
   // Mixed: split the total by the saved ratio, keeping the sum exact.

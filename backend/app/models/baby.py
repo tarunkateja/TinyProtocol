@@ -49,8 +49,9 @@ class BabyIn(BaseModel):
     birth_weight_g: Optional[int] = Field(None, gt=0)
     # e.g. ["GA1"]. Empty for babies with no metabolic condition.
     conditions: list[str] = Field(default_factory=list)
-    # Prefills the latch estimate; editable on every feed.
-    default_latch_rate_ml_per_10min: float = Field(20, ge=0)
+    # Prefills the latch estimate; editable on every feed. Conservative by
+    # default — for GA1 it's safer to under-count breast milk than over-count.
+    default_latch_rate_ml_per_10min: float = Field(15, ge=0)
     targets: Targets = Field(default_factory=Targets)
     notes: Optional[str] = None
 
