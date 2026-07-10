@@ -20,6 +20,16 @@ def to_local(dt: datetime, tz_name: str) -> datetime:
     return dt.astimezone(ZoneInfo(tz_name))
 
 
+def effective_day(now: datetime, tz_name: str, day_start: time = time.min) -> date:
+    """The local day a moment belongs to, honoring the family's day-start:
+    with day_start 08:00, 3am on July 8 still counts as July 7."""
+    local = now.astimezone(ZoneInfo(tz_name))
+    day = local.date()
+    if local.time() < day_start:
+        day -= timedelta(days=1)
+    return day
+
+
 def since_local(wall_time: time, tz_name: str, now: datetime) -> datetime:
     """UTC instant of the most recent occurrence of a local wall-clock time
     (today if already passed, else yesterday)."""

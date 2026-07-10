@@ -101,12 +101,9 @@ export default function Today() {
   const s = dayQ.data;
   const due = nextDue(rhythms.feed, lastFeedAt);
   const medDue = nextDue(rhythms.med, lastMedAt);
-  const bmMax = s?.volume_targets.find(
-    (v) => v.category === 'breast_milk' && v.direction === 'max',
-  );
-  const ga1Min = s?.volume_targets.find(
-    (v) => v.category === 'metabolic_formula' && v.direction === 'min',
-  );
+  // Whichever direction the current plan uses for each source.
+  const bmTarget = s?.volume_targets.find((v) => v.category === 'breast_milk');
+  const ga1Target = s?.volume_targets.find((v) => v.category === 'metabolic_formula');
 
   const confirmDelete = (entry: TimelineEntry) => {
     const isFeed = entry.item_type === 'FEED';
@@ -185,14 +182,20 @@ export default function Today() {
                 label="breast milk"
                 value={`${fmtNum(s?.breast_milk.total_ml)} ml`}
                 sub={
-                  bmMax ? `of ${fmtNum(bmMax.target_ml)} max` : undefined
+                  bmTarget
+                    ? `of ${fmtNum(bmTarget.target_ml)} ${bmTarget.direction}`
+                    : undefined
                 }
                 color={eventTheme.feed.color}
               />
               <Stat
                 label="GA1 formula"
                 value={`${fmtNum(s?.metabolic_formula_ml)} ml`}
-                sub={ga1Min ? `of ${fmtNum(ga1Min.target_ml)} min` : undefined}
+                sub={
+                  ga1Target
+                    ? `of ${fmtNum(ga1Target.target_ml)} ${ga1Target.direction}`
+                    : undefined
+                }
                 color={colors.metabolic}
               />
             </View>

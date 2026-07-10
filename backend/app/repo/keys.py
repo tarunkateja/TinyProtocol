@@ -6,6 +6,7 @@ Table shape (single table):
     FAMILY#<fid>        / MEMBER#<email>                   membership
     FAMILY#<fid>        / INVITE#<code>                    invite (TTL), GSI1 by code
     FAMILY#<fid>        / BABY#<id> | FOOD#<id> | MEDPRESET#<id>
+    FAMILY#<fid>        / TARGETHIST#<baby_id>#<date>       target snapshots
     BABY#<bid>          / LOG#<utc-iso>#FEED|EVENT#<ulid>  timeline items, GSI1 by log id
 
 GSI1 resolves ids that arrive without their full key:
@@ -85,6 +86,11 @@ def doc_sk(doc_id: str) -> str:
 def lab_sk(collected_date: str, lab_id: str) -> str:
     # Date first so a prefix query returns chronological order.
     return f"LAB#{collected_date}#{lab_id}"
+
+
+def target_hist_sk(baby_id: str, effective_date: str) -> str:
+    # Date last so a per-baby prefix query returns chronological order.
+    return f"TARGETHIST#{baby_id}#{effective_date}"
 
 
 def baby_pk(baby_id: str) -> str:

@@ -207,6 +207,12 @@ def _run_tool(
         except ValueError:
             return json.dumps({"error": "date must be YYYY-MM-DD"})
         window_from, window_to = day_window(day, tz_name, day_start)
+        if family_id:
+            from app.services import target_history
+
+            baby = baby.model_copy(
+                update={"targets": target_history.targets_for_day(family_id, baby, day)}
+            )
         summary = summarize_window(baby, window_from, window_to, tz_name, day=day)
     elif name == "get_recent_summary":
         try:

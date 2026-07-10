@@ -7,6 +7,7 @@ from app.auth import CurrentUser, get_current_user
 from app.models.summary import Summary
 from app.repo import families
 from app.routers.deps import get_baby_or_404
+from app.services import target_history
 from app.services.summary import summarize_window
 from app.services.tz import day_window, since_local
 
@@ -60,4 +61,8 @@ def day_summary(
     tz_name = fam["timezone"]
     day_start = time.fromisoformat(fam.get("day_start") or "00:00")
     window_from, window_to = day_window(day, tz_name, day_start)
+    # Past days are judged against the targets in effect on THAT day.
+    baby = baby.model_copy(
+        update={"targets": target_history.targets_for_day(user.family_id, baby, day)}
+    )
     return summarize_window(baby, window_from, window_to, tz_name, day=day)
