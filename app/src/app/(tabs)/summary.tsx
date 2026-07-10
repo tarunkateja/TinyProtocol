@@ -43,34 +43,53 @@ function fmtDay(iso: string): string {
   return new Date(iso).toLocaleDateString([], { month: 'short', day: 'numeric' });
 }
 
-/** The crisp bullet timeline: time — what happened, nothing else. */
-function timelineLines(s: Summary, multiDay: boolean): string[] {
+type TimelineKind = 'feeds' | 'meds' | 'pumping' | 'events';
+
+const TIMELINE_KINDS: { key: TimelineKind; label: string }[] = [
+  { key: 'feeds', label: '🍼 Feeds' },
+  { key: 'meds', label: '💊 Meds' },
+  { key: 'pumping', label: '🫙 Pumping' },
+  { key: 'events', label: '📋 Events' },
+];
+
+/** The crisp bullet timeline: time — what happened, only what was asked for. */
+function timelineLines(s: Summary, multiDay: boolean, include: Set<TimelineKind>): string[] {
   const entries: { at: string; text: string }[] = [];
-  for (const f of s.feeds) entries.push({ at: f.occurred_at, text: f.description });
-  for (const m of s.meds ?? []) {
-    const dose = m.dose_amount ? ` ${fmtNum(m.dose_amount)} ${m.dose_unit ?? ''}`.trimEnd() : '';
-    entries.push({ at: m.occurred_at, text: `💊 ${m.med_name}${dose}` });
+  if (include.has('feeds')) {
+    for (const f of s.feeds) entries.push({ at: f.occurred_at, text: f.description });
   }
-  for (const p of s.pumpings ?? []) {
-    entries.push({ at: p.occurred_at, text: `🍼 pumped ${fmtNum(p.pumped_ml)}ml` });
-  }
-  for (const w of s.weights ?? []) {
-    entries.push({ at: w.occurred_at, text: `⚖️ weight ${fmtNum(w.weight_g / 1000, 2)} kg` });
-  }
-  for (const [label, evs] of [
-    ['spit-up', s.spit_ups],
-    ['vomit', s.vomits],
-    ['fussy', s.fussiness],
-  ] as const) {
-    for (const e of evs ?? []) {
-      entries.push({
-        at: e.occurred_at,
-        text: `${label}${e.severity ? ` (${e.severity})` : ''}${e.note ? ` — ${e.note}` : ''}`,
-      });
+  if (include.has('meds')) {
+    for (const m of s.meds ?? []) {
+      const dose = m.dose_amount
+        ? ` ${fmtNum(m.dose_amount)} ${m.dose_unit ?? ''}`.trimEnd()
+        : '';
+      entries.push({ at: m.occurred_at, text: `💊 ${m.med_name}${dose}` });
     }
   }
-  for (const n of s.notes ?? []) {
-    entries.push({ at: n.occurred_at, text: `note: ${n.note ?? ''}` });
+  if (include.has('pumping')) {
+    for (const p of s.pumpings ?? []) {
+      entries.push({ at: p.occurred_at, text: `🫙 pumped ${fmtNum(p.pumped_ml)}ml` });
+    }
+  }
+  if (include.has('events')) {
+    for (const w of s.weights ?? []) {
+      entries.push({ at: w.occurred_at, text: `⚖️ weight ${fmtNum(w.weight_g / 1000, 2)} kg` });
+    }
+    for (const [label, evs] of [
+      ['spit-up', s.spit_ups],
+      ['vomit', s.vomits],
+      ['fussy', s.fussiness],
+    ] as const) {
+      for (const e of evs ?? []) {
+        entries.push({
+          at: e.occurred_at,
+          text: `${label}${e.severity ? ` (${e.severity})` : ''}${e.note ? ` — ${e.note}` : ''}`,
+        });
+      }
+    }
+    for (const n of s.notes ?? []) {
+      entries.push({ at: n.occurred_at, text: `note: ${n.note ?? ''}` });
+    }
   }
   entries.sort((a, b) => a.at.localeCompare(b.at));
   return entries.map(
@@ -117,10 +136,19 @@ export default function SummaryScreen() {
   });
   const s = q.data;
 
+  // What goes in the shareable timeline — feeds only by default.
+  const [include, setInclude] = useState<Set<TimelineKind>>(new Set(['feeds']));
+  const toggleKind = (k: TimelineKind) =>
+    setInclude((cur) => {
+      const next = new Set(cur);
+      next.has(k) ? next.delete(k) : next.add(k);
+      return next;
+    });
+
   const multiDay = win.custom
     ? fromDt.toDateString() !== toDt.toDateString()
     : (win.hours ?? 0) > 24;
-  const lines = s ? timelineLines(s, multiDay) : [];
+  const lines = s ? timelineLines(s, multiDay, include) : [];
   const timelineText = s
     ? `${s.baby_name} — ${s.window_label}\n${lines.join('\n')}`
     : '';
@@ -198,11 +226,25 @@ export default function SummaryScreen() {
       )}
 
       <SectionTitle>Timeline{s ? ` (${s.window_label})` : ''}</SectionTitle>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginBottom: spacing.xs }}>
+        {TIMELINE_KINDS.map((k) => (
+          <Chip
+            key={k.key}
+            label={k.label}
+            selected={include.has(k.key)}
+            onPress={() => toggleKind(k.key)}
+          />
+        ))}
+      </View>
       <Card style={styles.textCard}>
         {q.isLoading || !rangeValid ? (
           <Muted>{rangeValid ? 'Loading…' : 'Pick a valid range.'}</Muted>
         ) : lines.length === 0 ? (
-          <Muted>Nothing logged in this window.</Muted>
+          <Muted>
+            {include.size === 0
+              ? 'Pick at least one type above.'
+              : 'Nothing logged in this window.'}
+          </Muted>
         ) : (
           <Text selectable style={styles.timelineText}>
             {lines.join('\n')}
