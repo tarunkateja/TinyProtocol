@@ -13,7 +13,7 @@ import {
 } from 'react-native';
 
 import { api } from '../../lib/api';
-import { effectiveDayOf, effectiveDayString, fmtDateHeading, fmtNum, fmtTime } from '../../lib/format';
+import { addDays, effectiveDayString, fmtDateHeading, fmtNum, fmtTime } from '../../lib/format';
 import { DEFAULT_RHYTHMS, nextDue, syncRhythmNotification } from '../../lib/feedReminder';
 import { useBaby, useFamily, useInvalidateLogs } from '../../lib/hooks';
 import { colors, eventTheme, fonts, radius, spacing } from '../../lib/theme';
@@ -26,15 +26,28 @@ export default function Today() {
   const { family } = useFamily();
   const invalidate = useInvalidateLogs();
 
-  const today = effectiveDayString(family?.day_start ?? '00:00');
+  const dayStart = family?.day_start ?? '00:00';
+  const today = effectiveDayString(dayStart);
+  // One day at a time — ‹ › to browse, exactly like Totals.
+  const [day, setDay] = useState(today);
+  const isToday = day === today;
+
   const dayQ = useQuery({
-    queryKey: ['day', baby?.id, today],
-    queryFn: () => api.daySummary(baby!.id, today),
+    queryKey: ['day', baby?.id, day],
+    queryFn: () => api.daySummary(baby!.id, day),
     enabled: !!baby,
   });
+  // The selected day's UTC window (local day_start → next day_start).
+  const windowFrom = new Date(`${day}T${dayStart}:00`).toISOString();
+  const windowTo = new Date(`${addDays(day, 1)}T${dayStart}:00`).toISOString();
   const timelineQ = useInfiniteQuery({
-    queryKey: ['timeline', baby?.id],
-    queryFn: ({ pageParam }) => api.timeline(baby!.id, { cursor: pageParam || undefined }),
+    queryKey: ['timeline', baby?.id, day],
+    queryFn: ({ pageParam }) =>
+      api.timeline(baby!.id, {
+        from: windowFrom,
+        to: windowTo,
+        cursor: pageParam || undefined,
+      }),
     initialPageParam: '',
     getNextPageParam: (last) => last.next_cursor ?? undefined,
     enabled: !!baby,
@@ -45,36 +58,31 @@ export default function Today() {
     [timelineQ.data],
   );
 
-  const dayStart = family?.day_start ?? '00:00';
+  const rows = useMemo(
+    () =>
+      items.map((item, i): Row => ({ kind: 'entry', key: item.id, item, next: items[i + 1] })),
+    [items],
+  );
 
-  // Rows = day headers + entries (gaps only within the same day).
-  const rows = useMemo(() => {
-    const out: Row[] = [];
-    let currentDay = '';
-    const effToday = effectiveDayString(dayStart);
-    items.forEach((item, i) => {
-      const day = effectiveDayOf(item.occurred_at, dayStart);
-      if (day !== currentDay) {
-        currentDay = day;
-        out.push({ kind: 'header', key: `h-${day}`, label: fmtDateHeading(day, effToday) });
-      }
-      const next = items[i + 1];
-      const sameDayNext =
-        next && effectiveDayOf(next.occurred_at, dayStart) === day ? next : undefined;
-      out.push({ kind: 'entry', key: item.id, item, next: sameDayNext });
-    });
-    return out;
-  }, [items, dayStart]);
-
+  // Reminders anchor to the newest feed/med overall — independent of which
+  // day is being browsed (the last feed may have been yesterday evening).
+  const latestQ = useQuery({
+    queryKey: ['timeline-latest', baby?.id],
+    queryFn: () => api.timeline(baby!.id, {}),
+    enabled: !!baby,
+  });
+  const latestItems = latestQ.data?.items ?? [];
   const lastFeedAt = useMemo(() => {
-    const feed = items.find((i) => i.item_type === 'FEED');
+    const feed = latestItems.find((i) => i.item_type === 'FEED');
     return feed?.occurred_at ?? null;
-  }, [items]);
+  }, [latestItems]);
 
   const lastMedAt = useMemo(() => {
-    const med = items.find((i) => i.item_type === 'EVENT' && i.type === 'medication');
+    const med = latestItems.find(
+      (i) => i.item_type === 'EVENT' && i.type === 'medication',
+    );
     return med?.occurred_at ?? null;
-  }, [items]);
+  }, [latestItems]);
 
   const rhythms = family?.rhythms ?? DEFAULT_RHYTHMS;
   const [, setTick] = useState(0);
@@ -142,12 +150,32 @@ export default function Today() {
             onRefresh={() => {
               timelineQ.refetch();
               dayQ.refetch();
+              latestQ.refetch();
             }}
           />
         }
         ListHeaderComponent={
           <>
-            {family && !rhythms.feed.enabled && !rhythms.med.enabled && (
+            <View style={styles.dayNav}>
+              <Pressable style={styles.navBtn} onPress={() => setDay(addDays(day, -1))} hitSlop={6}>
+                <Text style={styles.navBtnText}>‹</Text>
+              </Pressable>
+              <Pressable onPress={() => !isToday && setDay(today)}>
+                <Text style={styles.dayTitle}>
+                  {fmtDateHeading(day, today)}
+                  {!isToday ? '  ⤴' : ''}
+                </Text>
+              </Pressable>
+              <Pressable
+                style={[styles.navBtn, isToday && { opacity: 0.3 }]}
+                disabled={isToday}
+                onPress={() => setDay(addDays(day, 1))}
+                hitSlop={6}
+              >
+                <Text style={styles.navBtnText}>›</Text>
+              </Pressable>
+            </View>
+            {isToday && family && !rhythms.feed.enabled && !rhythms.med.enabled && (
               <Pressable onPress={() => router.push('/reminders')}>
                 <View style={styles.rhythmSetup}>
                   <Text style={styles.rhythmSetupText}>
@@ -156,7 +184,7 @@ export default function Today() {
                 </View>
               </Pressable>
             )}
-            {due && (
+            {isToday && due && (
               <RhythmBanner
                 due={due}
                 intervalHours={rhythms.feed.interval_hours}
@@ -165,7 +193,7 @@ export default function Today() {
                 onPress={() => router.push('/reminders')}
               />
             )}
-            {medDue && (
+            {isToday && medDue && (
               <RhythmBanner
                 due={medDue}
                 intervalHours={rhythms.med.interval_hours}
@@ -177,7 +205,10 @@ export default function Today() {
               />
             )}
             <View style={styles.statsRow}>
-              <Stat label="total milk today" value={`${fmtNum(s?.total_ml)} ml`} />
+              <Stat
+                label={isToday ? 'total milk today' : 'total milk'}
+                value={`${fmtNum(s?.total_ml)} ml`}
+              />
               <Stat
                 label="breast milk"
                 value={`${fmtNum(s?.breast_milk.total_ml)} ml`}
@@ -203,19 +234,14 @@ export default function Today() {
         }
         ListEmptyComponent={
           <Muted style={{ textAlign: 'center', marginTop: 40 }}>
-            {timelineQ.isLoading ? 'Loading…' : 'No feeds or events logged yet.'}
+            {timelineQ.isLoading
+              ? 'Loading…'
+              : isToday
+                ? 'Nothing logged yet today.'
+                : 'Nothing logged this day.'}
           </Muted>
         }
         renderItem={({ item: row }) => {
-          if (row.kind === 'header') {
-            return (
-              <View style={styles.dayHeader}>
-                <View style={styles.dayHeaderLine} />
-                <Text style={styles.dayHeaderText}>{row.label}</Text>
-                <View style={styles.dayHeaderLine} />
-              </View>
-            );
-          }
           const { item, next } = row;
           return (
             <>
@@ -254,9 +280,7 @@ export default function Today() {
   );
 }
 
-type Row =
-  | { kind: 'header'; key: string; label: string }
-  | { kind: 'entry'; key: string; item: TimelineEntry; next?: TimelineEntry };
+type Row = { kind: 'entry'; key: string; item: TimelineEntry; next?: TimelineEntry };
 
 /** Visual breathing room between entries, proportional to the elapsed time —
  * a burst of activity reads dense, a long overnight stretch reads long. */
@@ -557,23 +581,22 @@ const styles = StyleSheet.create({
     fontFamily: fonts.semibold,
     fontSize: 11,
   },
-  dayHeader: {
+  dayNav: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.md,
-    marginVertical: spacing.sm,
+    justifyContent: 'space-between',
+    marginBottom: spacing.sm,
   },
-  dayHeaderLine: { flex: 1, height: 1, backgroundColor: colors.border },
-  dayHeaderText: {
-    color: colors.text,
-    fontFamily: fonts.heavy,
-    fontSize: 14,
+  navBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: radius.md,
     backgroundColor: colors.primarySoft,
-    borderRadius: radius.pill,
-    paddingHorizontal: 14,
-    paddingVertical: 5,
-    overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
+  navBtnText: { fontSize: 24, fontWeight: '700', color: colors.primary },
+  dayTitle: { fontSize: 18, fontFamily: fonts.heavy, color: colors.text },
   entry: {
     flexDirection: 'row',
     alignItems: 'flex-start',

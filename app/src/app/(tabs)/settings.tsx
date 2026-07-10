@@ -329,37 +329,6 @@ export default function Settings() {
         style={{ marginBottom: spacing.md }}
       />
 
-      <SectionTitle>Care & safety</SectionTitle>
-      <Button
-        title="🆘 Emergency card"
-        variant="secondary"
-        onPress={() => router.push('/emergency')}
-        style={{ marginBottom: spacing.sm }}
-      />
-      <Button
-        title="📂 Care documents (AI-processed)"
-        variant="secondary"
-        onPress={() => router.push('/docs')}
-        style={{ marginBottom: spacing.sm }}
-      />
-      <Button
-        title="🧪 Lab results & trends"
-        variant="secondary"
-        onPress={() => router.push('/labs')}
-        style={{ marginBottom: spacing.sm }}
-      />
-      <Button
-        title="📝 Clinic questions"
-        variant="secondary"
-        onPress={() => router.push('/clinic-notes')}
-        style={{ marginBottom: spacing.sm }}
-      />
-      <Button
-        title="📚 GA1 references & sources"
-        variant="secondary"
-        onPress={() => router.push('/references')}
-      />
-
       <SectionTitle>Reminders</SectionTitle>
       <Button
         title="⏰ Feed reminders"

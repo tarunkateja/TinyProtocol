@@ -45,6 +45,13 @@ export default function TabsLayout() {
         }}
       />
       <Tabs.Screen
+        name="care"
+        options={{
+          title: 'Care',
+          tabBarIcon: ({ color, size }) => <Ionicons name="medkit" color={color} size={size} />,
+        }}
+      />
+      <Tabs.Screen
         name="settings"
         options={{
           title: 'Settings',
