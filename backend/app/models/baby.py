@@ -64,7 +64,18 @@ class BabyUpdate(BaseModel):
     conditions: Optional[list[str]] = None
     default_latch_rate_ml_per_10min: Optional[float] = Field(None, ge=0)
     targets: Optional[Targets] = None
+    # When the new targets took effect (the dietician's change often predates
+    # the edit). Defaults to today; ignored unless targets is set.
+    targets_effective_from: Optional[date] = None
     notes: Optional[str] = None
+
+
+class TargetPeriod(BaseModel):
+    """One entry of the target history: these targets applied from
+    effective_date until the next period began (open-ended for the newest)."""
+
+    effective_date: str  # YYYY-MM-DD; "0001-01-01" = since the beginning
+    targets: Targets
 
 
 class Baby(BabyIn):

@@ -148,6 +148,61 @@ def test_summary_since_endpoint(auth_client):
     assert r.status_code == 422
 
 
+def test_summary_explicit_local_range(auth_client):
+    from datetime import datetime, timedelta, timezone
+    from zoneinfo import ZoneInfo
+
+    c = auth_client
+    bm = c.foods["Breast milk"]
+    # A feed 3h ago; a range covering it and one that misses it.
+    r = c.post(
+        f"/v1/babies/{c.baby_id}/feeds",
+        json={
+            "occurred_at": (datetime.now(timezone.utc) - timedelta(hours=3)).isoformat(),
+            "components": [{"kind": "liquid", "food_id": bm["id"], "volume_ml": 60}],
+        },
+    )
+    assert r.status_code == 201, r.text
+
+    ny_now = datetime.now(ZoneInfo("America/New_York")).replace(tzinfo=None)
+    fmt = "%Y-%m-%dT%H:%M:%S"
+    covering = c.get(
+        f"/v1/babies/{c.baby_id}/summary"
+        f"?from_local={(ny_now - timedelta(hours=4)).strftime(fmt)}"
+        f"&to_local={ny_now.strftime(fmt)}"
+    )
+    assert covering.status_code == 200, covering.text
+    assert covering.json()["feed_count"] == 1
+    assert "→" in covering.json()["window_label"]
+
+    missing = c.get(
+        f"/v1/babies/{c.baby_id}/summary"
+        f"?from_local={(ny_now - timedelta(hours=8)).strftime(fmt)}"
+        f"&to_local={(ny_now - timedelta(hours=6)).strftime(fmt)}"
+    )
+    assert missing.json()["feed_count"] == 0
+
+    # Validation: reversed range, mixed modes, dangling to_local.
+    bad = c.get(
+        f"/v1/babies/{c.baby_id}/summary"
+        f"?from_local={ny_now.strftime(fmt)}"
+        f"&to_local={(ny_now - timedelta(hours=1)).strftime(fmt)}"
+    )
+    assert bad.status_code == 422
+    assert (
+        c.get(
+            f"/v1/babies/{c.baby_id}/summary?hours=4&from_local={ny_now.strftime(fmt)}"
+        ).status_code
+        == 422
+    )
+    assert (
+        c.get(
+            f"/v1/babies/{c.baby_id}/summary?to_local={ny_now.strftime(fmt)}"
+        ).status_code
+        == 422
+    )
+
+
 def test_feed_presets_crud(auth_client):
     c = auth_client
     bm = c.foods["Breast milk"]

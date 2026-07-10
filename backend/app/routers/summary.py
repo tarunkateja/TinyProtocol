@@ -1,5 +1,6 @@
 from datetime import date, datetime, time, timedelta, timezone
 from typing import Optional
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
@@ -32,15 +33,39 @@ def rolling_summary(
     since_local_time: Optional[time] = Query(
         None, description="Window since this local wall-clock time, e.g. 07:00"
     ),
+    from_local: Optional[datetime] = Query(
+        None, description="Window start, local naive datetime e.g. 2026-07-09T08:00"
+    ),
+    to_local: Optional[datetime] = Query(
+        None, description="Window end, local naive datetime (defaults to now)"
+    ),
     user: CurrentUser = Depends(get_current_user),
 ):
-    """The doctor summary: a rolling window ending now — either the last N
-    hours (default 24) or since a local wall-clock time like 07:00."""
-    if hours is not None and since_local_time is not None:
-        raise HTTPException(422, "Pass either hours or since_local_time, not both")
+    """The doctor summary: a rolling window ending now (last N hours, or since
+    a local wall-clock time), or an explicit local from/to range."""
+    modes = sum(x is not None for x in (hours, since_local_time, from_local))
+    if modes > 1:
+        raise HTTPException(422, "Pass only one of hours, since_local_time, from_local")
+    if to_local is not None and from_local is None:
+        raise HTTPException(422, "to_local requires from_local")
     baby = get_baby_or_404(user, baby_id)
     tz_name = _family_tz(user.family_id)
     now = datetime.now(timezone.utc)
+
+    if from_local is not None:
+        tz = ZoneInfo(tz_name)
+        window_from = from_local.replace(tzinfo=tz).astimezone(timezone.utc)
+        window_to = to_local.replace(tzinfo=tz).astimezone(timezone.utc) if to_local else now
+        if window_from >= window_to:
+            raise HTTPException(422, "from_local must be before to_local")
+        if window_to - window_from > timedelta(days=14):
+            raise HTTPException(422, "Window is limited to 14 days")
+        fmt = "%b %-d, %-I:%M %p"
+        label = (
+            f"{from_local.strftime(fmt)} → "
+            f"{to_local.strftime(fmt) if to_local else 'now'}"
+        )
+        return summarize_window(baby, window_from, window_to, tz_name, window_label=label)
 
     if since_local_time is not None:
         window_from = since_local(since_local_time, tz_name, now)

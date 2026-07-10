@@ -199,6 +199,15 @@ export interface Summary {
   diapers: { pee: number; poop: number; changes: number };
   window_label: string;
   feeds: { id: string; occurred_at: string; total_ml: number; description: string }[];
+  pumpings: {
+    id: string;
+    occurred_at: string;
+    pumped_ml: number;
+    side?: string | null;
+    duration_minutes?: number | null;
+  }[];
+  diaper_events: { id: string; occurred_at: string; diaper_kind: string; note?: string | null }[];
+  weights: { id: string; occurred_at: string; weight_g: number }[];
   spit_ups: EventBrief[];
   vomits: EventBrief[];
   fussiness: EventBrief[];
@@ -277,6 +286,13 @@ export interface LabResult {
   source_doc_id?: string | null;
 }
 
+export interface ExtractedLab {
+  analyte: string;
+  value: number;
+  unit: string;
+  collected_date: string;
+}
+
 export type DocStatus = 'uploaded' | 'processing' | 'ready' | 'error';
 
 export interface CareDoc {
@@ -292,6 +308,9 @@ export interface CareDoc {
     summary_points: string[];
     contacts: CareContact[];
     key_facts: string[];
+    // Lab values found in the doc, awaiting parent review — empty
+    // collected_date means the test date wasn't visible in the document.
+    lab_results?: ExtractedLab[];
   } | null;
   lab_results_added: number;
   created_at: string;

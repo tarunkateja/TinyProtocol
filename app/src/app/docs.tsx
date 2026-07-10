@@ -15,9 +15,10 @@ import {
 } from 'react-native';
 
 import { api } from '../lib/api';
+import { fmtNum } from '../lib/format';
 import { colors, fonts, radius, spacing } from '../lib/theme';
 import type { CareDoc } from '../lib/types';
-import { Button, Card, Muted, SectionTitle } from '../components/ui';
+import { Button, Card, Field, Muted, SectionTitle } from '../components/ui';
 
 const STATUS_META: Record<string, { label: string; color: string }> = {
   uploaded: { label: 'Uploaded', color: colors.muted },
@@ -118,8 +119,8 @@ export default function Docs() {
   return (
     <ScrollView contentContainerStyle={{ padding: spacing.lg, paddingBottom: 60 }}>
       <Muted style={{ marginBottom: spacing.sm }}>
-        Upload clinic handouts, letters, and lab reports — AI extracts the key info,
-        and lab values flow into the Labs screen automatically.
+        Upload clinic handouts, letters, and lab reports — AI extracts the key info.
+        Lab values it finds wait for your review: you pick which ones to track.
       </Muted>
       <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.md }}>
         <Button title="📷 Camera" variant="secondary" style={{ flex: 1 }} onPress={fromCamera} />
@@ -159,10 +160,8 @@ export default function Docs() {
               {doc.status === 'error' && doc.error ? <Muted>{doc.error}</Muted> : null}
               {open && doc.status === 'ready' && (
                 <View style={{ marginTop: spacing.sm }}>
-                  {doc.lab_results_added > 0 && (
-                    <Text style={styles.labsBanner}>
-                      🧪 {doc.lab_results_added} lab value(s) added to Labs
-                    </Text>
+                  {(doc.extracted?.lab_results?.length ?? 0) > 0 && (
+                    <LabReview doc={doc} />
                   )}
                   {doc.summary ? (
                     <Text selectable style={styles.summary}>
@@ -211,19 +210,134 @@ export default function Docs() {
   );
 }
 
+/** Extracted lab values wait here for review: the parent picks which to
+ *  track and confirms the test date (required when the document didn't
+ *  show one) — nothing is logged automatically. */
+function LabReview({ doc }: { doc: CareDoc }) {
+  const qc = useQueryClient();
+  const rows = doc.extracted?.lab_results ?? [];
+  const extractedDate = rows.find((r) => r.collected_date)?.collected_date ?? '';
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [date, setDate] = useState(extractedDate);
+  const [saving, setSaving] = useState(false);
+
+  const labsQ = useQuery({ queryKey: ['labs'], queryFn: api.listLabs });
+  const logged = new Set(
+    (labsQ.data ?? [])
+      .filter((l) => l.source_doc_id === doc.id)
+      .map((l) => `${l.analyte}|${l.value}`),
+  );
+
+  const toggle = (i: number) => {
+    const next = new Set(selected);
+    next.has(i) ? next.delete(i) : next.add(i);
+    setSelected(next);
+  };
+
+  const validDate = /^\d{4}-\d{2}-\d{2}$/.test(date.trim());
+  const addSelected = async () => {
+    if (!validDate || selected.size === 0) return;
+    setSaving(true);
+    try {
+      for (const i of selected) {
+        const r = rows[i];
+        await api.createLab({
+          analyte: r.analyte,
+          value: r.value,
+          unit: r.unit,
+          collected_date: date.trim(),
+          source_doc_id: doc.id,
+        });
+      }
+      setSelected(new Set());
+      qc.invalidateQueries({ queryKey: ['labs'] });
+    } catch (e: any) {
+      Alert.alert('Could not save', e.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <View style={styles.labReview}>
+      <Text style={styles.subhead}>🧪 Lab values found — pick what to track</Text>
+      <Muted style={{ marginBottom: 6 }}>
+        Nothing is logged automatically. Tap the values you want in Labs.
+      </Muted>
+      {rows.map((r, i) => {
+        const isLogged = logged.has(`${r.analyte}|${r.value}`);
+        const isSelected = selected.has(i);
+        return (
+          <Pressable key={i} onPress={() => !isLogged && toggle(i)} disabled={isLogged}>
+            <View style={[styles.labRow, isSelected && styles.labRowSelected]}>
+              <Text style={styles.labCheck}>{isLogged ? '✓' : isSelected ? '☑' : '☐'}</Text>
+              <Text style={[styles.labName, isLogged && styles.labLogged]}>
+                {r.analyte.replace(/_/g, ' ')}
+              </Text>
+              <Text style={[styles.labValue, isLogged && styles.labLogged]}>
+                {fmtNum(r.value)} {r.unit}
+                {isLogged ? '  · in Labs' : ''}
+              </Text>
+            </View>
+          </Pressable>
+        );
+      })}
+      {selected.size > 0 && (
+        <>
+          {!extractedDate && (
+            <Text style={styles.dateWarn}>
+              ⚠️ The test date wasn't visible in this document — enter it below.
+            </Text>
+          )}
+          <Field
+            label="Test date (YYYY-MM-DD)"
+            value={date}
+            onChangeText={setDate}
+            placeholder="2026-07-01"
+          />
+          <Button
+            title={saving ? 'Saving…' : `Add ${selected.size} to Labs`}
+            onPress={addSelected}
+            disabled={!validDate || saving}
+          />
+          {!validDate && date.trim().length > 0 && (
+            <Muted style={{ marginTop: 4 }}>Date must be YYYY-MM-DD.</Muted>
+          )}
+        </>
+      )}
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   rowTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.sm },
   title: { fontFamily: fonts.bold, color: colors.text, fontSize: 15, flex: 1 },
   status: { fontFamily: fonts.bold, fontSize: 12 },
-  labsBanner: {
-    backgroundColor: '#E3F2E9',
-    color: colors.success,
-    fontFamily: fonts.bold,
-    fontSize: 13,
+  labReview: {
+    backgroundColor: '#F2F7F4',
     borderRadius: radius.sm,
-    padding: 8,
+    padding: spacing.sm,
     marginBottom: spacing.sm,
-    overflow: 'hidden',
+  },
+  labRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 7,
+    paddingHorizontal: 6,
+    borderRadius: radius.sm,
+  },
+  labRowSelected: { backgroundColor: '#E3F2E9' },
+  labCheck: { fontSize: 16, color: colors.success, width: 22, textAlign: 'center' },
+  labName: { flex: 1, fontFamily: fonts.semibold, color: colors.text, fontSize: 13.5 },
+  labValue: { fontFamily: fonts.bold, color: colors.text, fontSize: 13.5 },
+  labLogged: { color: colors.muted },
+  dateWarn: {
+    color: colors.danger,
+    fontFamily: fonts.semibold,
+    fontSize: 13,
+    marginTop: spacing.sm,
+    marginBottom: 4,
   },
   summary: { color: colors.text, fontSize: 14, lineHeight: 21, fontFamily: fonts.regular },
   subhead: { fontFamily: fonts.heavy, color: colors.text, fontSize: 13, marginTop: spacing.sm, marginBottom: 4 },

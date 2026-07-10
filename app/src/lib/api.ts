@@ -107,8 +107,14 @@ export const api = {
       name: string;
       default_latch_rate_ml_per_10min: number;
       targets: Targets;
+      // When the new targets took effect (YYYY-MM-DD, defaults to today).
+      targets_effective_from: string;
     }>,
   ) => patch<Baby>(`/babies/${id}`, body),
+  targetHistory: (id: string) =>
+    get<{ effective_date: string; targets: Targets }[]>(`/babies/${id}/target-history`),
+  deleteTargetPeriod: (id: string, effectiveDate: string) =>
+    del(`/babies/${id}/target-history/${effectiveDate}`),
 
   // foods
   listFoods: () => get<Food[]>('/foods'),
@@ -161,7 +167,13 @@ export const api = {
     patch<ClinicNote>(`/clinic-notes/${id}`, body),
   deleteClinicNote: (id: string) => del<void>(`/clinic-notes/${id}`),
   listLabs: () => get<LabResult[]>('/labs'),
-  createLab: (body: { analyte: string; value: number; unit: string; collected_date: string }) =>
+  createLab: (body: {
+    analyte: string;
+    value: number;
+    unit: string;
+    collected_date: string;
+    source_doc_id?: string;
+  }) =>
     post<LabResult>('/labs', body),
   deleteLab: (id: string) => del<void>(`/labs/${id}`),
   createDoc: (body: { filename: string; content_type: string; title?: string }) =>
@@ -185,11 +197,23 @@ export const api = {
   },
   daySummary: (babyId: string, day: string) =>
     get<Summary>(`/babies/${babyId}/days/${day}`),
-  rollingSummary: (babyId: string, window: { hours?: number; sinceLocalTime?: string }) =>
+  rollingSummary: (
+    babyId: string,
+    window: {
+      hours?: number;
+      sinceLocalTime?: string;
+      // Explicit local range, e.g. fromLocal '2026-07-09T08:00:00'.
+      fromLocal?: string;
+      toLocal?: string;
+    },
+  ) =>
     get<Summary>(
       `/babies/${babyId}/summary?` +
-        (window.sinceLocalTime
-          ? `since_local_time=${window.sinceLocalTime}`
-          : `hours=${window.hours ?? 24}`),
+        (window.fromLocal
+          ? `from_local=${window.fromLocal}` +
+            (window.toLocal ? `&to_local=${window.toLocal}` : '')
+          : window.sinceLocalTime
+            ? `since_local_time=${window.sinceLocalTime}`
+            : `hours=${window.hours ?? 24}`),
     ),
 };

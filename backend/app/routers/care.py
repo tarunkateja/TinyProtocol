@@ -107,6 +107,7 @@ def create_lab(body: LabResultIn, user: CurrentUser = Depends(get_current_user))
         value=body.value,
         unit=body.unit.strip(),
         collected_date=body.collected_date,
+        source_doc_id=body.source_doc_id,
         created_at=datetime.now(timezone.utc),
     )
     family_items.put(

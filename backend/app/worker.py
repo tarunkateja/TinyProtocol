@@ -2,22 +2,20 @@
 
 Invoked fire-and-forget by POST /docs/{id}/process (same code bundle,
 separate function with a 300s timeout — extraction doesn't fit the API
-Gateway 30s window). Reads the object from S3, sends it to gpt-4o, writes
-the structured extraction back onto the DOC item, and fans lab results out
-to LAB# items.
+Gateway 30s window). Reads the object from S3, sends it to the model, and
+writes the structured extraction back onto the DOC item. Lab values stay on
+the doc for parent review — they are never logged to Labs automatically.
 """
 
 import base64
 import io
 import json
-from datetime import datetime, timezone
 
 import boto3
 from openai import OpenAI
-from ulid import ULID
 
 from app.config import settings
-from app.models.care import DocExtraction, LabResult
+from app.models.care import DocExtraction
 from app.repo import family_items, keys
 
 MAX_PDF_PAGES = 10
@@ -66,7 +64,7 @@ EXTRACTION_SCHEMA = {
                         "analyte": {"type": "string", "description": "lowercase_snake_case, e.g. lysine, glutarylcarnitine, free_carnitine"},
                         "value": {"type": "number"},
                         "unit": {"type": "string"},
-                        "collected_date": {"type": "string", "description": "YYYY-MM-DD; empty string if unknown"},
+                        "collected_date": {"type": "string", "description": "YYYY-MM-DD, ONLY if a collection/test date is printed in the document; empty string otherwise — NEVER guess or use today's date"},
                     },
                     "required": ["analyte", "value", "unit", "collected_date"],
                     "additionalProperties": False,
@@ -83,7 +81,10 @@ infant with GA1 (glutaric aciduria type 1) into their private care app. Extract 
 content faithfully — do NOT invent, infer, or embellish anything not printed in the
 document. Plain text only, no Markdown. Extract every phone number with its purpose
 and availability hours. For lab reports, extract every analyte row exactly as printed
-(value, unit, collection date). If a field doesn't apply, return it empty."""
+(value, unit). Report the specimen collection/test date only if it is printed in the
+document — if you cannot see one, return an empty collected_date; never substitute
+today's date or the report/print date of a different event. If a field doesn't apply,
+return it empty."""
 
 
 def _trim_pdf(data: bytes) -> bytes:
@@ -133,28 +134,22 @@ def _extract(data: bytes, content_type: str, filename: str) -> dict:
     return json.loads(response.choices[0].message.content or "{}")
 
 
-def _store_labs(family_id: str, doc_id: str, lab_results: list[dict]) -> int:
-    stored = 0
+def _clean_labs(lab_results: list[dict]) -> list[dict]:
+    """Normalize extracted lab rows for the review UI; drop malformed ones."""
+    rows = []
     for row in lab_results:
         try:
-            collected = row.get("collected_date") or datetime.now(timezone.utc).date().isoformat()
-            lab = LabResult(
-                id=str(ULID()),
-                analyte=str(row["analyte"]).strip().lower().replace(" ", "_"),
-                value=float(row["value"]),
-                unit=str(row["unit"]).strip(),
-                collected_date=collected,
-                source_doc_id=doc_id,
-                created_at=datetime.now(timezone.utc),
+            rows.append(
+                {
+                    "analyte": str(row["analyte"]).strip().lower().replace(" ", "_"),
+                    "value": float(row["value"]),
+                    "unit": str(row["unit"]).strip(),
+                    "collected_date": str(row.get("collected_date") or "").strip(),
+                }
             )
         except (KeyError, ValueError, TypeError):
             continue
-        family_items.put(
-            family_id, keys.lab_sk(str(lab.collected_date), lab.id),
-            lab.model_dump(mode="json"),
-        )
-        stored += 1
-    return stored
+    return rows
 
 
 def process_doc(family_id: str, doc_id: str) -> None:
@@ -173,11 +168,8 @@ def process_doc(family_id: str, doc_id: str) -> None:
             summary_points=[p for p in raw.get("summary_points", []) if p][:10],
             contacts=raw.get("contacts", []),
             key_facts=[f for f in raw.get("key_facts", []) if f][:15],
+            lab_results=_clean_labs(raw.get("lab_results", []))[:30],
         )
-        labs_added = 0
-        if extraction.doc_type == "lab_report" or raw.get("lab_results"):
-            labs_added = _store_labs(family_id, doc_id, raw.get("lab_results", []))
-
         family_items.update_fields(
             family_id,
             keys.doc_sk(doc_id),
@@ -187,7 +179,7 @@ def process_doc(family_id: str, doc_id: str) -> None:
                 "title": (raw.get("title") or item.get("title") or item["filename"])[:120],
                 "summary": "\n".join(f"• {p}" for p in extraction.summary_points),
                 "extracted": extraction.model_dump(mode="json"),
-                "lab_results_added": labs_added,
+                "lab_results_added": 0,
             },
             condition="#f0 = :processing",
             condition_values={":processing": "processing"},

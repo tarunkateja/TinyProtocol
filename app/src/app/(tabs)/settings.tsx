@@ -4,7 +4,7 @@ import React, { useEffect, useState } from 'react';
 import { Alert, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
 
 import { api } from '../../lib/api';
-import { fmtNum } from '../../lib/format';
+import { fmtNum, localDateString } from '../../lib/format';
 import { useAuth } from '../../lib/auth';
 import { useBaby, useFoods } from '../../lib/hooks';
 import { colors, fonts, spacing } from '../../lib/theme';
@@ -25,6 +25,30 @@ const VOLUME_LABELS: [VolumeCategory, string][] = [
   ['metabolic_formula', '⚗️ GA1 / metabolic formula'],
 ];
 
+const CAT_SHORT: Record<string, string> = {
+  breast_milk: 'breast milk',
+  formula: 'formula',
+  metabolic_formula: 'GA1 formula',
+};
+
+function describeTargets(t: {
+  lysine_mg_per_day?: number | null;
+  natural_protein_g_per_day?: number | null;
+  lysine_mg_per_kg?: number | null;
+  natural_protein_g_per_kg?: number | null;
+  volume_targets?: { category: string; direction: string; ml_per_day: number }[];
+}): string {
+  const parts: string[] = [];
+  for (const vt of t.volume_targets ?? []) {
+    parts.push(`${CAT_SHORT[vt.category] ?? vt.category} ${vt.direction} ${fmtNum(vt.ml_per_day)} ml`);
+  }
+  if (t.lysine_mg_per_kg) parts.push(`lysine ${fmtNum(t.lysine_mg_per_kg)} mg/kg`);
+  else if (t.lysine_mg_per_day) parts.push(`lysine ${fmtNum(t.lysine_mg_per_day)} mg`);
+  if (t.natural_protein_g_per_kg) parts.push(`protein ${fmtNum(t.natural_protein_g_per_kg)} g/kg`);
+  else if (t.natural_protein_g_per_day) parts.push(`protein ${fmtNum(t.natural_protein_g_per_day)} g`);
+  return parts.join(' · ') || 'no targets set';
+}
+
 export default function Settings() {
   const router = useRouter();
   const qc = useQueryClient();
@@ -39,7 +63,13 @@ export default function Settings() {
   const [proteinPerKg, setProteinPerKg] = useState(0);
   const [latchRate, setLatchRate] = useState(20);
   const [volumes, setVolumes] = useState<VolumeDraft>(EMPTY_VOLUMES);
+  const [effectiveFrom, setEffectiveFrom] = useState(localDateString());
   const [savingTargets, setSavingTargets] = useState(false);
+  const historyQ = useQuery({
+    queryKey: ['target-history', baby?.id],
+    queryFn: () => api.targetHistory(baby!.id),
+    enabled: !!baby,
+  });
 
   useEffect(() => {
     if (baby) {
@@ -71,6 +101,10 @@ export default function Settings() {
       if (min > 0) volume_targets.push({ category: cat, direction: 'min', ml_per_day: min });
       if (max > 0) volume_targets.push({ category: cat, direction: 'max', ml_per_day: max });
     }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(effectiveFrom.trim())) {
+      Alert.alert('Check date', '"In effect since" must be YYYY-MM-DD.');
+      return;
+    }
     setSavingTargets(true);
     try {
       await api.updateBaby(baby.id, {
@@ -82,6 +116,7 @@ export default function Settings() {
           natural_protein_g_per_kg: proteinPerKg > 0 ? proteinPerKg : null,
           volume_targets,
         },
+        targets_effective_from: effectiveFrom.trim(),
       });
       qc.invalidateQueries();
       Alert.alert('Saved', 'Targets updated.');
@@ -192,17 +227,72 @@ export default function Settings() {
               </View>
             ))}
             <Muted style={{ marginTop: spacing.sm }}>
-              Your case: breast milk max 400, GA1 formula min 120. Powder scoops don't
-              count toward ml — log GA1 as the "prepared" liquid food.
+              Powder scoops don't count toward ml — log GA1 as the "prepared"
+              liquid food.
             </Muted>
 
-            <Button
-              title="Save"
-              onPress={saveBaby}
-              loading={savingTargets}
-              style={{ marginTop: spacing.md }}
+            <Text style={[styles.label, { marginTop: spacing.md }]}>
+              In effect since (past days keep their old targets)
+            </Text>
+            <Field
+              label=""
+              value={effectiveFrom}
+              onChangeText={setEffectiveFrom}
+              placeholder={localDateString()}
             />
+            <Button title="Save" onPress={saveBaby} loading={savingTargets} />
           </Card>
+
+          {(historyQ.data?.length ?? 0) > 0 && (
+            <>
+              <SectionTitle>Target history</SectionTitle>
+              <Card style={{ paddingVertical: 4 }}>
+                {historyQ
+                  .data!.slice()
+                  .reverse()
+                  .map((p, i, arr) => {
+                    const from =
+                      p.effective_date === '0001-01-01' ? 'start' : p.effective_date;
+                    const until = i === 0 ? 'now' : arr[i - 1].effective_date;
+                    return (
+                      <Pressable
+                        key={p.effective_date}
+                        onLongPress={() =>
+                          Alert.alert(
+                            'Delete this target period?',
+                            `Days from ${from} will fall back to the previous period's targets.`,
+                            [
+                              { text: 'Cancel', style: 'cancel' },
+                              {
+                                text: 'Delete',
+                                style: 'destructive',
+                                onPress: async () => {
+                                  await api.deleteTargetPeriod(baby.id, p.effective_date);
+                                  qc.invalidateQueries({ queryKey: ['target-history'] });
+                                },
+                              },
+                            ],
+                          )
+                        }
+                        style={[
+                          styles.historyRow,
+                          i > 0 && { borderTopWidth: 1, borderTopColor: colors.border },
+                        ]}
+                      >
+                        <Text style={styles.historyDates}>
+                          {from} → {until}
+                        </Text>
+                        <Text style={styles.historyTargets}>{describeTargets(p.targets)}</Text>
+                      </Pressable>
+                    );
+                  })}
+              </Card>
+              <Muted style={{ marginBottom: spacing.sm }}>
+                Past days use the targets that were in effect then · long-press a
+                period to delete it.
+              </Muted>
+            </>
+          )}
         </>
       )}
 
@@ -318,4 +408,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 12,
   },
+  historyRow: { paddingVertical: 10 },
+  historyDates: { fontFamily: fonts.bold, color: colors.text, fontSize: 13.5 },
+  historyTargets: { fontFamily: fonts.regular, color: colors.muted, fontSize: 13, marginTop: 2 },
 });

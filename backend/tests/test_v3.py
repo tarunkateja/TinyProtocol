@@ -149,7 +149,8 @@ def test_docs_pipeline(auth_client, monkeypatch):
         "contacts": [],
         "key_facts": ["Lysine within target range"],
         "lab_results": [
-            {"analyte": "Lysine", "value": 82, "unit": "umol/L", "collected_date": "2026-07-01"}
+            {"analyte": "Lysine", "value": 82, "unit": "umol/L", "collected_date": "2026-07-01"},
+            {"analyte": "Alanine", "value": 310, "unit": "umol/L", "collected_date": ""},
         ],
     }
     monkeypatch.setattr(worker, "_extract", lambda *a, **k: fake_extraction)
@@ -158,11 +159,28 @@ def test_docs_pipeline(auth_client, monkeypatch):
     doc = c.get(f"/v1/docs/{doc_id}").json()
     assert doc["status"] == "ready"
     assert doc["title"] == "Plasma amino acids 7/1"
-    assert doc["lab_results_added"] == 1
     assert "Lysine 82" in doc["summary"]
 
+    # Extracted values wait on the doc for review — nothing auto-logged, and
+    # a missing collection date stays empty rather than defaulting to today.
+    assert doc["extracted"]["lab_results"] == [
+        {"analyte": "lysine", "value": 82, "unit": "umol/L", "collected_date": "2026-07-01"},
+        {"analyte": "alanine", "value": 310, "unit": "umol/L", "collected_date": ""},
+    ]
+    assert c.get("/v1/labs").json() == []
+
+    # The parent confirms just the value they care about, with the real date.
+    r = c.post(
+        "/v1/labs",
+        json={
+            "analyte": "lysine", "value": 82, "unit": "umol/L",
+            "collected_date": "2026-07-01", "source_doc_id": doc_id,
+        },
+    )
+    assert r.status_code == 201, r.text
     labs = c.get("/v1/labs").json()
-    assert labs[-1]["analyte"] == "lysine" and labs[-1]["source_doc_id"] == doc_id
+    assert len(labs) == 1
+    assert labs[0]["analyte"] == "lysine" and labs[0]["source_doc_id"] == doc_id
 
     # Download URL + delete.
     assert "url" in c.get(f"/v1/docs/{doc_id}/download").json()

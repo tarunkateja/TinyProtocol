@@ -27,6 +27,7 @@ def record_change(
     new: Targets,
     tz_name: str,
     day_start: time = time.min,
+    effective_from: date | None = None,
 ) -> None:
     if new == old:
         return
@@ -34,7 +35,27 @@ def record_change(
     if not family_items.list_by_prefix(family_id, prefix):
         _put_snapshot(family_id, baby_id, BASELINE_DATE, old)
     today = effective_day(datetime.now(timezone.utc), tz_name, day_start)
-    _put_snapshot(family_id, baby_id, today.isoformat(), new)
+    # A plan change often predates the edit (the dietician called days ago),
+    # but can't start in the future — the live targets apply from now.
+    when = min(effective_from or today, today)
+    _put_snapshot(family_id, baby_id, when.isoformat(), new)
+
+
+def list_periods(family_id: str, baby_id: str) -> list[dict]:
+    snaps = family_items.list_by_prefix(family_id, f"TARGETHIST#{baby_id}#")
+    snaps.sort(key=lambda s: s["effective_date"])
+    return [
+        {"effective_date": s["effective_date"], "targets": s.get("targets") or {}}
+        for s in snaps
+    ]
+
+
+def delete_period(family_id: str, baby_id: str, effective_date: str) -> bool:
+    sk = keys.target_hist_sk(baby_id, effective_date)
+    if family_items.get(family_id, sk) is None:
+        return False
+    family_items.delete(family_id, sk)
+    return True
 
 
 def targets_for_day(family_id: str, baby: Baby, day: date) -> Targets:

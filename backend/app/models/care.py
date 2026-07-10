@@ -59,11 +59,12 @@ class LabResultIn(BaseModel):
     value: float
     unit: str = Field(min_length=1, max_length=20)
     collected_date: date
+    # Set when the value was confirmed from an uploaded document.
+    source_doc_id: Optional[str] = None
 
 
 class LabResult(LabResultIn):
     id: str
-    source_doc_id: Optional[str] = None
     created_at: datetime
 
 
@@ -79,11 +80,24 @@ class ExtractedContact(BaseModel):
     when: Optional[str] = None
 
 
+class ExtractedLab(BaseModel):
+    analyte: str
+    value: float
+    unit: str
+    # Empty when the collection date wasn't visible in the document — the
+    # parent supplies it when confirming which values to log.
+    collected_date: str = ""
+
+
 class DocExtraction(BaseModel):
     doc_type: str = "other"  # clinic_guide | emergency_letter | lab_report | ...
     summary_points: list[str] = []
     contacts: list[ExtractedContact] = []
     key_facts: list[str] = []
+    # Lab values found in the document. Held here for parent review — NEVER
+    # logged automatically (the parent picks which to track and confirms the
+    # test date via POST /labs).
+    lab_results: list[ExtractedLab] = []
 
 
 class DocCreate(BaseModel):

@@ -96,6 +96,69 @@ def test_noop_target_update_writes_no_history(auth_client, monkeypatch):
     assert snaps == []
 
 
+def test_backdated_target_change_and_history_endpoints(auth_client):
+    c = auth_client
+    baby_id = c.baby_id
+    today = date.today()
+    two_days_ago = today - timedelta(days=2)
+
+    # "The dietician told us two days ago" — backdate the change.
+    r = c.patch(
+        f"/v1/babies/{baby_id}",
+        json={
+            "targets": NEW_TARGETS,
+            "targets_effective_from": two_days_ago.isoformat(),
+        },
+    )
+    assert r.status_code == 200, r.text
+
+    # Yesterday already uses the new plan; before the change, the old one.
+    day = c.get(
+        f"/v1/babies/{baby_id}/days/{(today - timedelta(days=1)).isoformat()}"
+    ).json()
+    assert [(t["category"], t["direction"]) for t in day["volume_targets"]] == [
+        ("metabolic_formula", "max")
+    ]
+    day = c.get(
+        f"/v1/babies/{baby_id}/days/{(today - timedelta(days=3)).isoformat()}"
+    ).json()
+    assert day["volume_targets"] == []  # registration targets, no volume goals
+
+    # History lists both periods; deleting the backdated one 404s twice.
+    hist = c.get(f"/v1/babies/{baby_id}/target-history").json()
+    assert [h["effective_date"] for h in hist] == [
+        "0001-01-01",
+        two_days_ago.isoformat(),
+    ]
+    assert (
+        c.delete(
+            f"/v1/babies/{baby_id}/target-history/{two_days_ago.isoformat()}"
+        ).status_code
+        == 204
+    )
+    assert (
+        c.delete(
+            f"/v1/babies/{baby_id}/target-history/{two_days_ago.isoformat()}"
+        ).status_code
+        == 404
+    )
+
+
+def test_future_effective_date_is_clamped_to_today(auth_client):
+    c = auth_client
+    baby_id = c.baby_id
+    r = c.patch(
+        f"/v1/babies/{baby_id}",
+        json={
+            "targets": NEW_TARGETS,
+            "targets_effective_from": (date.today() + timedelta(days=30)).isoformat(),
+        },
+    )
+    assert r.status_code == 200, r.text
+    hist = c.get(f"/v1/babies/{baby_id}/target-history").json()
+    assert hist[-1]["effective_date"] <= date.today().isoformat()
+
+
 def test_effective_day_respects_day_start():
     # 3 AM local with an 8 AM day start still belongs to the previous day.
     now = datetime(2026, 7, 10, 8, 0, tzinfo=timezone.utc)  # 3 AM Chicago (CDT)
