@@ -52,11 +52,26 @@ const TIMELINE_KINDS: { key: TimelineKind; label: string }[] = [
   { key: 'events', label: '📋 Events' },
 ];
 
-/** The crisp bullet timeline: time — what happened, only what was asked for. */
-function timelineLines(s: Summary, multiDay: boolean, include: Set<TimelineKind>): string[] {
+/** The crisp bullet timeline: time — what happened, only what was asked for.
+ *  Multi-part feeds show as one total ("60ml mixed*"); the recipe goes in a
+ *  single footnote at the bottom instead of cluttering every bullet. */
+function timelineLines(
+  s: Summary,
+  multiDay: boolean,
+  include: Set<TimelineKind>,
+): { lines: string[]; footnotes: string[] } {
   const entries: { at: string; text: string }[] = [];
+  const footnotes: string[] = [];
   if (include.has('feeds')) {
-    for (const f of s.feeds) entries.push({ at: f.occurred_at, text: f.description });
+    for (const f of s.feeds) {
+      if (f.description.includes(' + ')) {
+        entries.push({ at: f.occurred_at, text: `${fmtNum(f.total_ml)}ml mixed*` });
+        const note = `* mixed ${fmtNum(f.total_ml)}ml = ${f.description}`;
+        if (!footnotes.includes(note)) footnotes.push(note);
+      } else {
+        entries.push({ at: f.occurred_at, text: f.description });
+      }
+    }
   }
   if (include.has('meds')) {
     for (const m of s.meds ?? []) {
@@ -92,9 +107,12 @@ function timelineLines(s: Summary, multiDay: boolean, include: Set<TimelineKind>
     }
   }
   entries.sort((a, b) => a.at.localeCompare(b.at));
-  return entries.map(
-    (e) => `• ${multiDay ? `${fmtDay(e.at)} ` : ''}${fmtTime(e.at)} — ${e.text}`,
-  );
+  return {
+    lines: entries.map(
+      (e) => `• ${multiDay ? `${fmtDay(e.at)} ` : ''}${fmtTime(e.at)} — ${e.text}`,
+    ),
+    footnotes,
+  };
 }
 
 export default function SummaryScreen() {
@@ -148,10 +166,11 @@ export default function SummaryScreen() {
   const multiDay = win.custom
     ? fromDt.toDateString() !== toDt.toDateString()
     : (win.hours ?? 0) > 24;
-  const lines = s ? timelineLines(s, multiDay, include) : [];
-  const timelineText = s
-    ? `${s.baby_name} — ${s.window_label}\n${lines.join('\n')}`
-    : '';
+  const { lines, footnotes } = s
+    ? timelineLines(s, multiDay, include)
+    : { lines: [], footnotes: [] };
+  const timelineBody = [...lines, ...(footnotes.length ? ['', ...footnotes] : [])].join('\n');
+  const timelineText = s ? `${s.baby_name} — ${s.window_label}\n${timelineBody}` : '';
 
   const makeDraft = async () => {
     if (!baby || drafting) return;
@@ -247,7 +266,7 @@ export default function SummaryScreen() {
           </Muted>
         ) : (
           <Text selectable style={styles.timelineText}>
-            {lines.join('\n')}
+            {timelineBody}
           </Text>
         )}
       </Card>
