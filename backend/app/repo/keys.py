@@ -88,6 +88,17 @@ def lab_sk(collected_date: str, lab_id: str) -> str:
     return f"LAB#{collected_date}#{lab_id}"
 
 
+def huckleberry_sk(baby_id: str) -> str:
+    """Per-baby Huckleberry connection (refresh token, child uid, mapping)."""
+    return f"HUCKLEBERRY#{baby_id}"
+
+
+def hb_import_sk(baby_id: str, hb_key: str) -> str:
+    """One imported/pending Huckleberry event; hb_key is the Firestore doc id
+    (stable across upstream edits), so re-syncs are idempotent."""
+    return f"HBIMPORT#{baby_id}#{hb_key}"
+
+
 def target_hist_sk(baby_id: str, effective_date: str) -> str:
     # Date last so a per-baby prefix query returns chronological order.
     return f"TARGETHIST#{baby_id}#{effective_date}"

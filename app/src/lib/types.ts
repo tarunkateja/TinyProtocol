@@ -45,6 +45,7 @@ export interface Baby {
   id: string;
   name: string;
   date_of_birth?: string | null;
+  birth_weight_g?: number | null;
   conditions: string[];
   default_latch_rate_ml_per_10min: number;
   targets: Targets;
@@ -216,6 +217,36 @@ export interface Summary {
   summary_text: string;
 }
 
+export interface DailyIntakeDay {
+  day: string; // YYYY-MM-DD
+  feed_count: number;
+  total_ml: number;
+  breast_milk_ml: number; // includes latch estimates
+  formula_ml: number;
+  metabolic_formula_ml: number;
+  other_ml: number;
+}
+
+export interface DailyIntakeSeries {
+  baby_id: string;
+  from_day: string;
+  to_day: string;
+  days: DailyIntakeDay[];
+}
+
+export interface WeightPoint {
+  id: string;
+  occurred_at: string;
+  weight_g: number;
+}
+
+export interface WeightSeries {
+  baby_id: string;
+  date_of_birth?: string | null;
+  birth_weight_g?: number | null;
+  weights: WeightPoint[]; // ascending
+}
+
 export interface EventBrief {
   id: string;
   occurred_at: string;
@@ -320,4 +351,74 @@ export interface DocCreated {
   doc: CareDoc;
   upload_url: string;
   upload_content_type: string;
+}
+
+// --------------------------------------------------------------------------- //
+// Huckleberry sync
+// --------------------------------------------------------------------------- //
+export type HbImportStatus = 'pending' | 'imported' | 'dismissed' | 'deleted_upstream';
+
+export interface HbChild {
+  uid: string;
+  name: string;
+}
+
+export interface HbSplitPart {
+  food_id: string;
+  food_name?: string | null;
+  parts: number;
+}
+
+export interface HbMappingEntry {
+  food_id?: string | null;
+  food_name?: string | null;
+  split?: HbSplitPart[] | null;
+}
+
+export interface HbStatus {
+  connected: boolean;
+  hb_email?: string | null;
+  child_name?: string | null;
+  auto_import: boolean;
+  mapping: Record<string, HbMappingEntry>;
+  latch_rate_ml_per_10min?: number | null;
+  last_synced_at?: string | null;
+  status?: string | null;
+  last_error?: string | null;
+  pending_count: number;
+}
+
+// Returned by connect when the Huckleberry account has several children.
+export interface HbChildSelection {
+  needs_child_selection: true;
+  children: HbChild[];
+}
+
+export interface HbImport {
+  baby_id: string;
+  hb_key: string;
+  status: HbImportStatus;
+  mode: 'bottle' | 'breast' | 'diaper' | 'medication' | 'pumping';
+  occurred_at: string;
+  bottle_type?: string | null;
+  amount_ml?: number | null;
+  minutes?: number | null;
+  diaper_kind?: string | null;
+  pumped_ml?: number | null;
+  side?: string | null;
+  duration_minutes?: number | null;
+  med_name?: string | null;
+  dose_amount?: number | null;
+  dose_unit?: string | null;
+  notes?: string | null;
+  food_id?: string | null;
+  feed_id?: string | null;
+}
+
+export interface HbSyncResult {
+  fetched: number;
+  new_pending: number;
+  auto_imported: number;
+  updated: number;
+  deleted_upstream: number;
 }

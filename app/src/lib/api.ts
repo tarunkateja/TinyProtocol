@@ -1,3 +1,4 @@
+import { Platform } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
 
 import type {
@@ -11,16 +12,22 @@ import type {
   ChatFull,
   ChatMeta,
   ChatReply,
+  DailyIntakeSeries,
   Family,
   Feed,
   FeedComponentIn,
   FeedPreset,
   Food,
+  HbChildSelection,
+  HbImport,
+  HbStatus,
+  HbSyncResult,
   MedPreset,
   Summary,
   Targets,
   TimelineEntry,
   TokenResponse,
+  WeightSeries,
 } from './types';
 
 export const API_URL =
@@ -28,18 +35,33 @@ export const API_URL =
 
 const TOKEN_KEY = 'tinyprotocol_token';
 
+// SecureStore has no web implementation; fall back to localStorage so the
+// web build (used for dev checks) can run.
+const store =
+  Platform.OS === 'web'
+    ? {
+        getItemAsync: async (k: string) => globalThis.localStorage?.getItem(k) ?? null,
+        setItemAsync: async (k: string, v: string) => {
+          globalThis.localStorage?.setItem(k, v);
+        },
+        deleteItemAsync: async (k: string) => {
+          globalThis.localStorage?.removeItem(k);
+        },
+      }
+    : SecureStore;
+
 let _token: string | null = null;
 
 export async function loadToken(): Promise<string | null> {
   if (_token) return _token;
-  _token = await SecureStore.getItemAsync(TOKEN_KEY);
+  _token = await store.getItemAsync(TOKEN_KEY);
   return _token;
 }
 
 export async function setToken(token: string | null) {
   _token = token;
-  if (token) await SecureStore.setItemAsync(TOKEN_KEY, token);
-  else await SecureStore.deleteItemAsync(TOKEN_KEY);
+  if (token) await store.setItemAsync(TOKEN_KEY, token);
+  else await store.deleteItemAsync(TOKEN_KEY);
 }
 
 export class ApiError extends Error {
@@ -105,6 +127,8 @@ export const api = {
     id: string,
     body: Partial<{
       name: string;
+      date_of_birth: string;
+      birth_weight_g: number;
       default_latch_rate_ml_per_10min: number;
       targets: Targets;
       // When the new targets took effect (YYYY-MM-DD, defaults to today).
@@ -184,6 +208,36 @@ export const api = {
   docDownloadUrl: (id: string) => get<{ url: string }>(`/docs/${id}/download`),
   deleteDoc: (id: string) => del<void>(`/docs/${id}`),
 
+  // Huckleberry sync
+  hbStatus: (babyId: string) => get<HbStatus>(`/babies/${babyId}/huckleberry`),
+  hbConnect: (babyId: string, body: { email: string; password: string; child_uid?: string }) =>
+    post<HbStatus | HbChildSelection>(`/babies/${babyId}/huckleberry/connect`, body),
+  hbUpdate: (
+    babyId: string,
+    body: {
+      auto_import?: boolean;
+      mapping?: Record<string, string | { food_id: string; parts: number }[]>;
+      latch_rate_ml_per_10min?: number;
+    },
+  ) => patch<HbStatus>(`/babies/${babyId}/huckleberry`, body),
+  hbDisconnect: (babyId: string) => del<void>(`/babies/${babyId}/huckleberry`),
+  hbSyncNow: (babyId: string) => post<HbSyncResult>(`/babies/${babyId}/huckleberry/sync`),
+  hbImports: (babyId: string, status?: string) =>
+    get<{ items: HbImport[] }>(
+      `/babies/${babyId}/huckleberry/imports${status ? `?status=${status}` : ''}`,
+    ),
+  hbConfirm: (
+    babyId: string,
+    hbKey: string,
+    body: { volume_ml?: number; rate_ml_per_10min?: number; measured_ml?: number } = {},
+  ) =>
+    post<Feed>(
+      `/babies/${babyId}/huckleberry/imports/${encodeURIComponent(hbKey)}/confirm`,
+      body,
+    ),
+  hbDismiss: (babyId: string, hbKey: string) =>
+    post<void>(`/babies/${babyId}/huckleberry/imports/${encodeURIComponent(hbKey)}/dismiss`),
+
   // reads
   timeline: (babyId: string, params?: { from?: string; to?: string; cursor?: string }) => {
     const q = new URLSearchParams();
@@ -197,6 +251,10 @@ export const api = {
   },
   daySummary: (babyId: string, day: string) =>
     get<Summary>(`/babies/${babyId}/days/${day}`),
+  dailyIntake: (babyId: string, from: string, to: string) =>
+    get<DailyIntakeSeries>(`/babies/${babyId}/analytics/daily?from=${from}&to=${to}`),
+  weightHistory: (babyId: string) =>
+    get<WeightSeries>(`/babies/${babyId}/analytics/weights`),
   rollingSummary: (
     babyId: string,
     window: {

@@ -73,6 +73,14 @@ function RootNavigator() {
           options={{ presentation: 'modal', title: 'Reminders' }}
         />
         <Stack.Screen
+          name="analytics"
+          options={{ presentation: 'modal', title: 'Trends' }}
+        />
+        <Stack.Screen
+          name="huckleberry"
+          options={{ presentation: 'modal', title: 'Huckleberry sync' }}
+        />
+        <Stack.Screen
           name="emergency"
           options={{ presentation: 'modal', title: '🆘 Emergency' }}
         />

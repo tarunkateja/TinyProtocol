@@ -4,7 +4,7 @@ import React, { useEffect, useState } from 'react';
 import { Alert, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
 
 import { api } from '../../lib/api';
-import { fmtNum, localDateString } from '../../lib/format';
+import { fmtAge, fmtLbOz, fmtNum, gToOz, lbOzToG, localDateString } from '../../lib/format';
 import { useAuth } from '../../lib/auth';
 import { useBaby, useFoods } from '../../lib/hooks';
 import { colors, fonts, spacing } from '../../lib/theme';
@@ -56,7 +56,16 @@ export default function Settings() {
   const { baby } = useBaby();
   const { foods } = useFoods();
   const meQ = useQuery({ queryKey: ['me'], queryFn: api.me });
+  const hbQ = useQuery({
+    queryKey: ['hb-status', baby?.id],
+    queryFn: () => api.hbStatus(baby!.id),
+    enabled: !!baby,
+  });
 
+  const [dob, setDob] = useState('');
+  const [birthLb, setBirthLb] = useState(0);
+  const [birthOz, setBirthOz] = useState(0);
+  const [savingAbout, setSavingAbout] = useState(false);
   const [lysineTarget, setLysineTarget] = useState(0);
   const [proteinTarget, setProteinTarget] = useState(0);
   const [lysinePerKg, setLysinePerKg] = useState(0);
@@ -73,6 +82,12 @@ export default function Settings() {
 
   useEffect(() => {
     if (baby) {
+      setDob(baby.date_of_birth ?? '');
+      if (baby.birth_weight_g) {
+        const totalOz = gToOz(baby.birth_weight_g);
+        setBirthLb(Math.floor(totalOz / 16));
+        setBirthOz(Math.round((totalOz % 16) * 10) / 10);
+      }
       setLysineTarget(baby.targets.lysine_mg_per_day ?? 0);
       setProteinTarget(baby.targets.natural_protein_g_per_day ?? 0);
       setLysinePerKg(baby.targets.lysine_mg_per_kg ?? 0);
@@ -88,6 +103,30 @@ export default function Settings() {
 
   const setVolume = (cat: VolumeCategory, dir: 'min' | 'max', v: number) =>
     setVolumes((cur) => ({ ...cur, [cat]: { ...cur[cat], [dir]: v } }));
+
+  const saveAbout = async () => {
+    if (!baby) return;
+    const d = dob.trim();
+    if (d && (!/^\d{4}-\d{2}-\d{2}$/.test(d) || Number.isNaN(new Date(d).getTime()))) {
+      Alert.alert('Check date', 'Birthday must be YYYY-MM-DD, e.g. 2026-05-22.');
+      return;
+    }
+    setSavingAbout(true);
+    try {
+      await api.updateBaby(baby.id, {
+        ...(d ? { date_of_birth: d } : {}),
+        ...(birthLb > 0 || birthOz > 0
+          ? { birth_weight_g: lbOzToG(birthLb, birthOz) }
+          : {}),
+      });
+      qc.invalidateQueries();
+      Alert.alert('Saved', `${baby.name}'s details updated.`);
+    } catch (e: any) {
+      Alert.alert('Could not save', e.message);
+    } finally {
+      setSavingAbout(false);
+    }
+  };
 
   const saveBaby = async () => {
     if (!baby) return;
@@ -159,6 +198,38 @@ export default function Settings() {
     <ScrollView contentContainerStyle={{ padding: spacing.lg, paddingBottom: 60 }}>
       {baby && (
         <>
+          <SectionTitle>About {baby.name}</SectionTitle>
+          <Card>
+            <Text style={styles.label}>Birthday (YYYY-MM-DD)</Text>
+            <Field
+              value={dob}
+              onChangeText={setDob}
+              placeholder="2026-05-22"
+              autoCapitalize="none"
+            />
+            {/^\d{4}-\d{2}-\d{2}$/.test(dob.trim()) && fmtAge(dob.trim()) !== '' && (
+              <Muted style={{ marginBottom: spacing.sm }}>
+                {baby.name} is {fmtAge(dob.trim())} old today 🎉
+              </Muted>
+            )}
+            <Text style={styles.label}>Birth weight</Text>
+            <View style={{ flexDirection: 'row', gap: spacing.md }}>
+              <View style={{ flex: 1 }}>
+                <Muted style={{ marginBottom: 4 }}>pounds</Muted>
+                <Stepper value={birthLb} onChange={setBirthLb} step={1} suffix="lb" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Muted style={{ marginBottom: 4 }}>ounces</Muted>
+                <Stepper value={birthOz} onChange={setBirthOz} step={0.5} suffix="oz" />
+              </View>
+            </View>
+            <Muted style={{ marginTop: spacing.xs, marginBottom: spacing.sm }}>
+              Current weight comes from ⚖️ Weight events — this is just the starting
+              point for the growth chart.
+            </Muted>
+            <Button title="Save" onPress={saveAbout} loading={savingAbout} />
+          </Card>
+
           <SectionTitle>
             {baby.name} — daily targets (from your metabolic team)
           </SectionTitle>
@@ -180,7 +251,7 @@ export default function Settings() {
             <Muted style={{ marginBottom: spacing.xs }}>
               Current weight:{' '}
               {baby.current_weight_g
-                ? `${fmtNum(baby.current_weight_g / 1000, 2)} kg`
+                ? `${fmtLbOz(baby.current_weight_g)} (${fmtNum(baby.current_weight_g / 1000, 2)} kg)`
                 : 'none logged yet — log a ⚖️ Weight event'}
               {baby.current_weight_g && lysinePerKg > 0
                 ? ` → lysine target ${fmtNum((lysinePerKg * baby.current_weight_g) / 1000)} mg/day`
@@ -334,6 +405,19 @@ export default function Settings() {
         title="⏰ Feed reminders"
         variant="secondary"
         onPress={() => router.push('/reminders')}
+      />
+
+      <SectionTitle>Sync</SectionTitle>
+      <Button
+        title={`🫐 Huckleberry sync${
+          hbQ.data?.connected
+            ? hbQ.data.pending_count > 0
+              ? ` · ${hbQ.data.pending_count} to review`
+              : ' · on'
+            : ''
+        }`}
+        variant="secondary"
+        onPress={() => router.push('/huckleberry')}
       />
 
       <SectionTitle>Family</SectionTitle>

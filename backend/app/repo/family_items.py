@@ -58,6 +58,25 @@ def delete(family_id: str, sk: str) -> None:
     get_table().delete_item(Key={"PK": keys.family_pk(family_id), "SK": sk})
 
 
+def scan_sk_prefix(sk_prefix: str) -> list[dict]:
+    """All items with the given SK prefix across every family (paginated scan).
+
+    Cross-family by design — the scheduled Huckleberry sync enumerates every
+    connection. The table is tiny (one real family), so a scan is fine.
+    """
+    from boto3.dynamodb.conditions import Attr
+
+    items: list[dict] = []
+    kwargs: dict = {"FilterExpression": Attr("SK").begins_with(sk_prefix)}
+    while True:
+        resp = get_table().scan(**kwargs)
+        items.extend(from_item(i) for i in resp["Items"])
+        lek = resp.get("LastEvaluatedKey")
+        if not lek:
+            return items
+        kwargs["ExclusiveStartKey"] = lek
+
+
 def list_by_prefix(family_id: str, sk_prefix: str) -> list[dict]:
     resp = get_table().query(
         KeyConditionExpression=Key("PK").eq(keys.family_pk(family_id))

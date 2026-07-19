@@ -13,7 +13,7 @@ import {
 } from 'react-native';
 
 import { api } from '../../lib/api';
-import { fmtNum } from '../../lib/format';
+import { fmtLbOz, fmtNum } from '../../lib/format';
 import { useBaby } from '../../lib/hooks';
 import { colors, fonts, radius, spacing } from '../../lib/theme';
 import type { Summary } from '../../lib/types';
@@ -88,7 +88,7 @@ function timelineLines(
   }
   if (include.has('events')) {
     for (const w of s.weights ?? []) {
-      entries.push({ at: w.occurred_at, text: `⚖️ weight ${fmtNum(w.weight_g / 1000, 2)} kg` });
+      entries.push({ at: w.occurred_at, text: `⚖️ weight ${fmtLbOz(w.weight_g)}` });
     }
     for (const [label, evs] of [
       ['spit-up', s.spit_ups],

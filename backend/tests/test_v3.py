@@ -38,7 +38,7 @@ def test_weight_event_updates_baby_and_perkg_targets(auth_client):
     assert s["lysine_target_basis"] == "70 mg/kg × 6.5 kg"
     assert s["targets"]["natural_protein_g_per_day"] == 7.8
     assert s["weights"][0]["weight_g"] == 6500
-    assert "Weight: 6.5 kg" in s["summary_text"]
+    assert "Weight: 14 lb 5.3 oz / 6.5 kg" in s["summary_text"]
 
     # Missing weight_g rejected.
     r = c.post(

@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
@@ -10,6 +11,7 @@ import { Card, Muted, SectionTitle } from '../../components/ui';
 import type { Summary } from '../../lib/types';
 
 export default function Totals() {
+  const router = useRouter();
   const { baby } = useBaby();
   const { family } = useFamily();
   const effectiveToday = effectiveDayString(family?.day_start ?? '00:00');
@@ -38,6 +40,11 @@ export default function Totals() {
           <Text style={styles.navBtnText}>›</Text>
         </Pressable>
       </View>
+
+      <Pressable style={styles.trendsLink} onPress={() => router.push('/analytics')}>
+        <Text style={styles.trendsLinkText}>📈 Trends & growth</Text>
+        <Text style={styles.trendsLinkArrow}>›</Text>
+      </Pressable>
 
       <SectionTitle>GA1 targets</SectionTitle>
       <TargetBar
@@ -251,6 +258,20 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   navBtnText: { fontSize: 24, fontWeight: '700', color: colors.primary },
+  trendsLink: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    marginBottom: spacing.sm,
+  },
+  trendsLinkText: { fontFamily: fonts.bold, fontSize: 15, color: colors.text },
+  trendsLinkArrow: { fontSize: 20, fontWeight: '700', color: colors.muted },
   dayTitle: { fontSize: 18, fontWeight: '800', color: colors.text },
   barTrack: {
     height: 12,

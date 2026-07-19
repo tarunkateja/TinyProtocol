@@ -291,7 +291,8 @@ def render_text(s: Summary, tz_name: str) -> str:
     if s.weights:
         w = s.weights[-1]
         lines.append(
-            f"Weight: {_num(round(w.weight_g / 1000, 2))} kg ({_t(w.occurred_at, tz_name)})"
+            f"Weight: {_lb_oz(w.weight_g)} / {_num(round(w.weight_g / 1000, 2))} kg "
+            f"({_t(w.occurred_at, tz_name)})"
         )
     if s.pumping_sessions:
         lines.append(
@@ -341,3 +342,17 @@ def _num(x: float | None) -> str:
     if x is None:
         return "0"
     return str(int(x)) if float(x) == int(x) else str(round(x, 2))
+
+
+_G_PER_OZ = 28.349523125
+
+
+def _lb_oz(grams: float) -> str:
+    """Grams → '6 lb 6 oz' — how the parents (and US peds) talk about weight;
+    storage and per-kg target math stay metric."""
+    total_oz = grams / _G_PER_OZ
+    lb = int(total_oz // 16)
+    oz = round(total_oz - lb * 16, 1)
+    if oz >= 16:
+        lb, oz = lb + 1, 0
+    return f"{lb} lb {_num(oz)} oz" if oz else f"{lb} lb"

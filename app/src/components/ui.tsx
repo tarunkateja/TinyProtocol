@@ -187,7 +187,9 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     paddingHorizontal: 12,
   },
-  input: { flex: 1, paddingVertical: 12, fontSize: 16, color: colors.text, fontFamily: fonts.regular },
+  // minWidth 0 lets the input shrink inside narrow flex slots (two-up
+  // steppers) on web, where <input> otherwise has an intrinsic min width.
+  input: { flex: 1, minWidth: 0, paddingVertical: 12, fontSize: 16, color: colors.text, fontFamily: fonts.regular },
   suffix: { color: colors.muted, fontSize: 14, marginLeft: 6 },
   stepperRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   stepBtn: {

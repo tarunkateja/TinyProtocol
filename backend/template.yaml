@@ -98,6 +98,28 @@ Resources:
         - S3CrudPolicy:
             BucketName: !Sub tinyprotocol-docs-${Stage}-${AWS::AccountId}
 
+  HuckleberrySyncFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub tinyprotocol-hb-sync-${Stage}
+      CodeUri: .
+      Handler: app.hb_sync.handler
+      Timeout: 300
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref Table
+          JWT_SECRET: !Ref JwtSecret
+          STAGE: !Ref Stage
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref Table
+      Events:
+        EveryHalfHour:
+          Type: Schedule
+          Properties:
+            Schedule: rate(30 minutes)
+            Description: Pull new Huckleberry feed events for connected babies.
+
   ApiFunction:
     Type: AWS::Serverless::Function
     Properties:

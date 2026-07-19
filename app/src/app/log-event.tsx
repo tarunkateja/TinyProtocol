@@ -3,6 +3,7 @@ import React, { useEffect, useState } from 'react';
 import { Alert, ScrollView, Text, View } from 'react-native';
 
 import { api } from '../lib/api';
+import { fmtNum, gToOz, lbOzToG } from '../lib/format';
 import { useBaby, useInvalidateLogs, useMedPresets } from '../lib/hooks';
 import { colors, eventTheme, fonts, spacing } from '../lib/theme';
 import type { DiaperKind, DoseUnit, EventType, PumpSide, Severity } from '../lib/types';
@@ -40,7 +41,8 @@ export default function LogEvent() {
   const [side, setSide] = useState<PumpSide>('both');
   const [pumpMinutes, setPumpMinutes] = useState(0);
   const [diaperKind, setDiaperKind] = useState<DiaperKind>('pee');
-  const [weightKg, setWeightKg] = useState(0);
+  const [weightLb, setWeightLb] = useState(0);
+  const [weightOz, setWeightOz] = useState(0);
   const [note, setNote] = useState('');
   const [when, setWhen] = useState(new Date());
   const [busy, setBusy] = useState(false);
@@ -60,7 +62,11 @@ export default function LogEvent() {
         if (ev.side) setSide(ev.side);
         if (ev.duration_minutes) setPumpMinutes(ev.duration_minutes);
         if (ev.diaper_kind) setDiaperKind(ev.diaper_kind);
-        if (ev.weight_g) setWeightKg(Math.round(ev.weight_g / 10) / 100);
+        if (ev.weight_g) {
+          const totalOz = gToOz(ev.weight_g);
+          setWeightLb(Math.floor(totalOz / 16));
+          setWeightOz(Math.round((totalOz % 16) * 10) / 10);
+        }
         if (ev.note) setNote(ev.note);
       })
       .catch((e) => Alert.alert('Could not load event', e.message));
@@ -76,7 +82,7 @@ export default function LogEvent() {
         : type === 'pumping'
           ? pumpedMl > 0
           : type === 'weight'
-            ? weightKg > 0
+            ? weightLb > 0 || weightOz > 0
             : true;
 
   const save = async () => {
@@ -94,7 +100,7 @@ export default function LogEvent() {
         side: type === 'pumping' ? side : undefined,
         duration_minutes: type === 'pumping' && pumpMinutes > 0 ? pumpMinutes : undefined,
         diaper_kind: type === 'diaper' ? diaperKind : undefined,
-        weight_g: type === 'weight' ? Math.round(weightKg * 1000) : undefined,
+        weight_g: type === 'weight' ? lbOzToG(weightLb, weightOz) : undefined,
         note: note.trim() || undefined,
       };
       if (editing) {
@@ -186,10 +192,21 @@ export default function LogEvent() {
 
       {type === 'weight' && (
         <Card>
-          <Text style={styles_label}>Weight (kg)</Text>
-          <Stepper value={weightKg} onChange={setWeightKg} step={0.05} suffix="kg" />
+          <Text style={styles_label}>Weight</Text>
+          <View style={{ flexDirection: 'row', gap: spacing.md }}>
+            <View style={{ flex: 1 }}>
+              <Muted style={{ marginBottom: 4 }}>pounds</Muted>
+              <Stepper value={weightLb} onChange={setWeightLb} step={1} suffix="lb" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Muted style={{ marginBottom: 4 }}>ounces</Muted>
+              <Stepper value={weightOz} onChange={setWeightOz} step={0.5} suffix="oz" />
+            </View>
+          </View>
           <Muted style={{ marginTop: spacing.xs }}>
-            Updates the per-kg lysine/protein targets automatically.
+            {weightLb > 0 || weightOz > 0
+              ? `= ${fmtNum(lbOzToG(weightLb, weightOz) / 1000, 2)} kg — updates the per-kg lysine/protein targets automatically.`
+              : 'Updates the per-kg lysine/protein targets automatically.'}
           </Muted>
         </Card>
       )}

@@ -64,6 +64,57 @@ export function addDays(dateStr: string, delta: number): string {
   return localDateString(dt);
 }
 
+const G_PER_OZ = 28.349523125;
+
+/** Grams → "6 lb 6 oz" (storage stays metric; lb/oz is display-only). */
+export function fmtLbOz(g: number): string {
+  const totalOz = g / G_PER_OZ;
+  let lb = Math.floor(totalOz / 16);
+  let oz = Math.round((totalOz - lb * 16) * 10) / 10;
+  if (oz >= 16) {
+    lb += 1;
+    oz = 0;
+  }
+  return oz > 0 ? `${lb} lb ${fmtNum(oz)} oz` : `${lb} lb`;
+}
+
+export function lbOzToG(lb: number, oz: number): number {
+  return Math.round((lb * 16 + oz) * G_PER_OZ);
+}
+
+export function gToOz(g: number): number {
+  return g / G_PER_OZ;
+}
+
+/** Newborn-style age from a YYYY-MM-DD birth date: "6 d", "7 wk 2 d",
+ * then "3 mo 1 wk" once weeks stop being how parents count. */
+export function fmtAge(dob: string, onDate?: string): string {
+  const [y, m, d] = dob.split('-').map(Number);
+  const birth = new Date(y, m - 1, d);
+  const ref = onDate
+    ? (() => {
+        const [ry, rm, rd] = onDate.split('-').map(Number);
+        return new Date(ry, rm - 1, rd);
+      })()
+    : new Date();
+  ref.setHours(0, 0, 0, 0);
+  const days = Math.floor((ref.getTime() - birth.getTime()) / 86400000);
+  if (days < 0) return '';
+  if (days < 7) return `${days} d`;
+  const weeks = Math.floor(days / 7);
+  if (weeks < 14) {
+    const rest = days % 7;
+    return rest ? `${weeks} wk ${rest} d` : `${weeks} wk`;
+  }
+  let months =
+    (ref.getFullYear() - birth.getFullYear()) * 12 + (ref.getMonth() - birth.getMonth());
+  if (ref.getDate() < birth.getDate()) months -= 1;
+  const anchor = new Date(birth);
+  anchor.setMonth(anchor.getMonth() + months);
+  const restWeeks = Math.floor((ref.getTime() - anchor.getTime()) / (7 * 86400000));
+  return restWeeks ? `${months} mo ${restWeeks} wk` : `${months} mo`;
+}
+
 /** "35 minutes ago" style label for the log screens' time chip. */
 export function fmtRelative(date: Date): string {
   const mins = Math.round((Date.now() - date.getTime()) / 60000);

@@ -131,3 +131,37 @@ class Summary(BaseModel):
 
     # Server-rendered shareable text (times in the family's timezone).
     summary_text: str = ""
+
+
+class DailyIntakeDay(BaseModel):
+    """One local day's intake by source, for the trends chart."""
+
+    day: date
+    feed_count: int = 0
+    total_ml: float = 0
+    breast_milk_ml: float = 0  # includes latch estimates
+    formula_ml: float = 0
+    metabolic_formula_ml: float = 0
+    other_ml: float = 0
+
+
+class DailyIntakeSeries(BaseModel):
+    baby_id: str
+    from_day: date
+    to_day: date
+    days: list[DailyIntakeDay]
+
+
+class WeightPoint(BaseModel):
+    id: str
+    occurred_at: datetime
+    weight_g: float
+
+
+class WeightSeries(BaseModel):
+    """All weight check-ins (ascending), plus birth context for the chart."""
+
+    baby_id: str
+    date_of_birth: Optional[date] = None
+    birth_weight_g: Optional[int] = None
+    weights: list[WeightPoint]

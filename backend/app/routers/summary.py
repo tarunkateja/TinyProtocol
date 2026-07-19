@@ -5,12 +5,20 @@ from zoneinfo import ZoneInfo
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.auth import CurrentUser, get_current_user
-from app.models.summary import Summary
-from app.repo import families
+from app.models.event import Event
+from app.models.feed import Feed
+from app.models.summary import (
+    DailyIntakeDay,
+    DailyIntakeSeries,
+    Summary,
+    WeightPoint,
+    WeightSeries,
+)
+from app.repo import families, keys, logs
 from app.routers.deps import get_baby_or_404
 from app.services import target_history
 from app.services.summary import summarize_window
-from app.services.tz import day_window, since_local
+from app.services.tz import day_window, effective_day, since_local
 
 router = APIRouter(tags=["summary"])
 
@@ -74,6 +82,90 @@ def rolling_summary(
         window_from = now - timedelta(hours=hours or 24)
         label = ""
     return summarize_window(baby, window_from, now, tz_name, window_label=label)
+
+
+@router.get("/babies/{baby_id}/analytics/daily", response_model=DailyIntakeSeries)
+def daily_intake(
+    baby_id: str,
+    from_day: date = Query(alias="from"),
+    to_day: date = Query(alias="to"),
+    user: CurrentUser = Depends(get_current_user),
+):
+    """Per-day intake by source (ml) for the trends chart. Read-only: feeds
+    are bucketed by the local day they already belong to; nothing is written."""
+    if from_day > to_day:
+        raise HTTPException(422, "from must be on or before to")
+    if (to_day - from_day).days > 92:
+        raise HTTPException(422, "Range is limited to 92 days")
+    baby = get_baby_or_404(user, baby_id)
+    fam = _family(user.family_id)
+    tz_name = fam["timezone"]
+    day_start = time.fromisoformat(fam.get("day_start") or "00:00")
+
+    window_from, _ = day_window(from_day, tz_name, day_start)
+    _, window_to = day_window(to_day, tz_name, day_start)
+    items = logs.query_all_logs(
+        baby.id,
+        keys.log_sk_bound(window_from),
+        keys.log_sk_bound(window_to),
+        log_type=keys.LOG_TYPE_FEED,
+    )
+
+    n_days = (to_day - from_day).days + 1
+    buckets = {
+        from_day + timedelta(days=i): DailyIntakeDay(day=from_day + timedelta(days=i))
+        for i in range(n_days)
+    }
+    for item in items:
+        feed = Feed.model_validate(item)
+        occurred = feed.occurred_at
+        if occurred.tzinfo is None:
+            occurred = occurred.replace(tzinfo=timezone.utc)
+        b = buckets.get(effective_day(occurred, tz_name, day_start))
+        if b is None:
+            continue
+        t = feed.totals
+        b.feed_count += 1
+        b.total_ml = round(b.total_ml + t.total_ml, 1)
+        b.breast_milk_ml = round(b.breast_milk_ml + t.breast_milk_ml, 1)
+        b.formula_ml = round(b.formula_ml + t.formula_ml, 1)
+        b.metabolic_formula_ml = round(
+            b.metabolic_formula_ml + t.metabolic_formula_ml, 1
+        )
+        b.other_ml = round(b.other_ml + t.other_ml, 1)
+
+    return DailyIntakeSeries(
+        baby_id=baby.id,
+        from_day=from_day,
+        to_day=to_day,
+        days=[buckets[d] for d in sorted(buckets)],
+    )
+
+
+@router.get("/babies/{baby_id}/analytics/weights", response_model=WeightSeries)
+def weight_history(baby_id: str, user: CurrentUser = Depends(get_current_user)):
+    """Every weight check-in ever logged, oldest first, plus birth context.
+    Read-only: nothing is written or altered."""
+    baby = get_baby_or_404(user, baby_id)
+    now = datetime.now(timezone.utc)
+    items = logs.query_all_logs(
+        baby.id,
+        keys.log_sk_bound(datetime(2020, 1, 1, tzinfo=timezone.utc)),
+        keys.log_sk_bound(now + timedelta(days=1)),
+        log_type=keys.LOG_TYPE_EVENT,
+    )
+    weights = [
+        WeightPoint(id=e.id, occurred_at=e.occurred_at, weight_g=e.weight_g)
+        for e in (Event.model_validate(i) for i in items)
+        if e.type == "weight" and e.weight_g
+    ]
+    weights.sort(key=lambda w: w.occurred_at.isoformat())
+    return WeightSeries(
+        baby_id=baby.id,
+        date_of_birth=baby.date_of_birth,
+        birth_weight_g=baby.birth_weight_g,
+        weights=weights,
+    )
 
 
 @router.get("/babies/{baby_id}/days/{day}", response_model=Summary)

@@ -13,7 +13,14 @@ import {
 } from 'react-native';
 
 import { api } from '../../lib/api';
-import { addDays, effectiveDayString, fmtDateHeading, fmtNum, fmtTime } from '../../lib/format';
+import {
+  addDays,
+  effectiveDayString,
+  fmtDateHeading,
+  fmtLbOz,
+  fmtNum,
+  fmtTime,
+} from '../../lib/format';
 import { DEFAULT_RHYTHMS, nextDue, syncRhythmNotification } from '../../lib/feedReminder';
 import { useBaby, useFamily, useInvalidateLogs } from '../../lib/hooks';
 import { colors, eventTheme, fonts, radius, spacing } from '../../lib/theme';
@@ -466,7 +473,7 @@ function EventRow({
   } else if (event.type === 'diaper') {
     title = `Diaper — ${event.diaper_kind === 'both' ? 'pee + poop' : event.diaper_kind}`;
   } else if (event.type === 'weight') {
-    title = `Weight · ${fmtNum((event.weight_g ?? 0) / 1000, 2)} kg`;
+    title = `Weight · ${fmtLbOz(event.weight_g ?? 0)}`;
   } else {
     if (event.severity) bits.push(event.severity);
     if (event.med_name) bits.push(event.med_name);
