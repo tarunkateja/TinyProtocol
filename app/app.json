@@ -38,6 +38,17 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "69050640-8d15-493d-a597-f928db274a4e"
+      }
+    },
+    "owner": "tarunkateja",
+    "runtimeVersion": "exposdk:54.0.0",
+    "updates": {
+      "url": "https://u.expo.dev/69050640-8d15-493d-a597-f928db274a4e"
     }
   }
 }
