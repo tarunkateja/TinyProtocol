@@ -92,6 +92,87 @@ TOOLS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_community",
+            "description": (
+                "Search real discussions from a private Facebook support group of "
+                "~1.4K families affected by GA-1, spanning 2008-2026. Use this for "
+                "lived-experience questions that the baby's own logs cannot answer: "
+                "what other parents did, what they observed, how they handled "
+                "something practical. Returns whole threads with permalinks to cite. "
+                "Parent anecdote, never medical guidance."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "The question or topic in natural language.",
+                    },
+                    "keywords": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": (
+                            "Synonyms and alternate wordings to widen the search - this "
+                            "matters a lot, because matching is keyword-based and parents "
+                            "write 'jabs', 'shots' and 'immunisations' for one thing. "
+                            "Include brand names where relevant (Tylenol, Calpol, "
+                            "Beyfortus, Glutarex)."
+                        ),
+                    },
+                },
+                "required": ["query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "community_practices",
+            "description": (
+                "Structured counts of what families DID, extracted from every thread "
+                "on a topic - not just the ones retrieved. Use this whenever the "
+                "question is quantitative ('how many families...', 'what do most "
+                "people do...', 'what are the common approaches') or asks for "
+                "before/during/after practices. Prefer this over search_community "
+                "for counting; search_community cannot count honestly because it "
+                "only sees a few threads. Currently only the topic 'vaccination' "
+                "has been extracted."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "topic": {
+                        "type": "string",
+                        "enum": ["vaccination"],
+                        "description": "Extracted topic. Only 'vaccination' exists so far.",
+                    },
+                    "phase": {
+                        "type": "string",
+                        "enum": ["before", "during", "after"],
+                        "description": "Narrow to one phase. Omit for the full picture.",
+                    },
+                    "vaccine": {
+                        "type": "string",
+                        "enum": [
+                            "flu", "covid", "mmr", "routine_infant",
+                            "rsv_beyfortus_synagis", "varicella", "other", "unspecified",
+                        ],
+                    },
+                    "outcome": {
+                        "type": "string",
+                        "enum": [
+                            "no_issues", "mild_fever", "high_fever", "lethargy_only",
+                            "metabolic_crisis", "hospitalised", "declined_vaccine", "unclear",
+                        ],
+                    },
+                },
+                "required": ["topic"],
+            },
+        },
+    },
 ]
 
 
@@ -146,6 +227,22 @@ even if asked directly. For any clinical question or concerning symptom, tell th
 to contact their metabolic team, and offer to summarize the relevant data for that conversation.
 - If the logs suggest something urgent (e.g. repeated vomiting for a GA1 baby), say clearly \
 that they should contact their metabolic team promptly — without diagnosing.
+
+Community knowledge (search_community / community_practices):
+- These search real discussions from a private Facebook group of ~1.4K GA-1 families. \
+Use them for lived-experience questions the logs cannot answer: what other parents did, \
+what they observed, how they handled something practical.
+- NEVER blend the two sources in a way that hides which is which. This baby's own numbers \
+come from the log tools; anything from the group is what OTHER families reported. Say which.
+- Counting questions ("how many families...", "what do most people do") must use \
+community_practices, NOT search_community. Retrieval only sees a few threads, so counting \
+from it invents statistics.
+- Even with community_practices, these are counts of what families WROTE, never rates. Say \
+"9 families described X", never "9% of families" and never "X is common in GA-1".
+- Always offer the permalink so the parent can read the original thread themselves.
+- This is anecdote from strangers, not clinical evidence. Practices vary widely and much of \
+it is years old. Present the RANGE of what families did rather than a single answer, and \
+route anything clinical to the metabolic team. Never let group practice become a recommendation.
 
 Style:
 - PLAIN TEXT ONLY — your reply renders in a simple chat bubble that does not support \
@@ -220,11 +317,88 @@ def _run_tool(
         except (TypeError, ValueError):
             return json.dumps({"error": "hours must be an integer"})
         summary = summarize_window(baby, now - timedelta(hours=hours), now, tz_name)
+    elif name == "search_community":
+        from app.services import community
+
+        return community.search(
+            str(tool_input.get("query", "")),
+            tool_input.get("keywords") or [],
+        )
+    elif name == "community_practices":
+        from app.services import community
+
+        return community.practices(
+            topic=str(tool_input.get("topic", "vaccination")),
+            phase=tool_input.get("phase"),
+            vaccine=tool_input.get("vaccine"),
+            outcome=tool_input.get("outcome"),
+        )
     else:
         return json.dumps({"error": f"unknown tool {name}"})
 
     payload = summary.model_dump(mode="json", exclude={"summary_text"})
     return json.dumps(payload)
+
+
+COMMUNITY_TOOLS = [t for t in TOOLS if t["function"]["name"].startswith(("search_community", "community_"))]
+
+COMMUNITY_ONLY_RULES = """
+
+COMMUNITY-ONLY MODE (the parent explicitly asked for support-group data only):
+- Answer ONLY from search_community / community_practices results. You have no
+  access to this baby's logs in this mode, and you must not draw on your own
+  general knowledge of GA-1, vaccines, or medicine.
+- If the tools return nothing relevant, say plainly that the corpus has nothing on
+  this and stop. Do NOT fall back to what you know. An empty answer is correct here.
+- Every factual statement must be traceable to a returned thread. Quote or closely
+  paraphrase, and give the permalink."""
+
+
+def _provenance(name: str, args: dict, result: str) -> dict | None:
+    """Summarise what a tool actually returned, for the client to display.
+
+    The chat bubble is model-authored text, so a number in it is only ever a
+    claim. This record is built from the tool output itself, which lets the app
+    show what the data really said next to what the model wrote about it.
+    """
+    try:
+        payload = json.loads(result)
+    except (json.JSONDecodeError, TypeError):
+        return {"tool": name, "kind": "other"}
+
+    if name == "search_community":
+        return {
+            "tool": name,
+            "kind": "community",
+            "query": args.get("query"),
+            "threads": [
+                {
+                    "post_id": t.get("post_id"),
+                    "url": t.get("url"),
+                    "total_comments": t.get("total_comments"),
+                    "excerpt": (t.get("post") or "")[:160],
+                }
+                for t in payload.get("threads", [])
+            ],
+        }
+    if name == "community_practices":
+        return {
+            "tool": name,
+            "kind": "community",
+            "topic": payload.get("topic"),
+            "reports": payload.get("reports"),
+            "distinct_families": payload.get("distinct_families"),
+            "threads_with_extracted_practices": payload.get(
+                "threads_with_extracted_practices"
+            ),
+            "top_practices": {
+                phase: payload.get(phase, [])[:8]
+                for phase in ("before", "during", "after")
+                if payload.get(phase)
+            },
+            "outcomes": payload.get("outcomes"),
+        }
+    return {"tool": name, "kind": "baby_logs", "args": args}
 
 
 def chat(
@@ -234,27 +408,56 @@ def chat(
     messages: list[dict],
     day_start: time = time.min,
     family_id: str = "",
+    community_only: bool = False,
+    sources_out: list | None = None,
 ) -> str:
-    """Run the tool-use loop and return the assistant's final text reply."""
-    client = _client()
-    convo: list[dict] = [
-        {"role": "system", "content": _system_prompt(baby, tz_name, parent_name, day_start)},
-        *messages,
-    ]
+    """Run the tool-use loop and return the assistant's final text reply.
 
-    for _ in range(MAX_TOOL_ROUNDS + 1):
+    `sources_out`, if given, is filled with a record of what each tool actually
+    returned. `community_only` restricts the model to the support-group corpus.
+    """
+    client = _client()
+    system = _system_prompt(baby, tz_name, parent_name, day_start)
+    if community_only:
+        system += COMMUNITY_ONLY_RULES
+    convo: list[dict] = [{"role": "system", "content": system}, *messages]
+    active_tools = COMMUNITY_TOOLS if community_only else TOOLS
+    community_used = False
+
+    for round_no in range(MAX_TOOL_ROUNDS + 1):
+        kwargs: dict = {}
+        # Telling the model "only use the corpus" is not enforcement: asked a
+        # straight biochemistry question it answered from its own knowledge with
+        # no tool call at all. Forcing a tool call on the first turn makes the
+        # corpus the only possible source of a first answer.
+        if community_only and round_no == 0:
+            kwargs["tool_choice"] = "required"
+
         response = client.chat.completions.create(
             model=settings.assistant_model,
             max_completion_tokens=3000,
             # gpt-5.5 chat completions requires 'none' when function tools are
             # used (also keeps the tool loop inside the 29s route budget).
             reasoning_effort="none",
-            tools=TOOLS,
+            tools=active_tools,
             messages=convo,
+            **kwargs,
         )
         msg = response.choices[0].message
 
         if not msg.tool_calls:
+            # Hard backstop: in community-only mode an answer that consulted no
+            # community tool is the model talking from its own knowledge, which
+            # is exactly what this mode exists to prevent. Refuse rather than
+            # pass it off as group data.
+            if community_only and not community_used:
+                return (
+                    "I could not find anything about that in the GA-1 support group "
+                    "corpus, so I have nothing to report.\n\n"
+                    "This mode answers only from what families actually wrote in the "
+                    "group. It will not fall back on general knowledge — ask again "
+                    "without community-only mode if you want that."
+                )
             return msg.content or ""
 
         convo.append(
@@ -279,13 +482,26 @@ def chat(
                 args = json.loads(tc.function.arguments or "{}")
             except json.JSONDecodeError:
                 args = {}
+            result = _run_tool(
+                tc.function.name, args, baby, tz_name, day_start, family_id
+            )
+            record = _provenance(tc.function.name, args, result)
+            # A forced tool call is not evidence the answer came from the corpus:
+            # asked a biochemistry question the model dutifully called a tool,
+            # ignored the empty-ish result and answered from its own knowledge.
+            # Only a call that actually returned content counts.
+            if record and record.get("kind") == "community":
+                got_threads = bool(record.get("threads"))
+                got_reports = bool(record.get("reports"))
+                if got_threads or got_reports:
+                    community_used = True
+            if sources_out is not None and record:
+                sources_out.append(record)
             convo.append(
                 {
                     "role": "tool",
                     "tool_call_id": tc.id,
-                    "content": _run_tool(
-                        tc.function.name, args, baby, tz_name, day_start, family_id
-                    ),
+                    "content": result,
                 }
             )
 

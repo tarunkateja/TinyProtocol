@@ -41,7 +41,9 @@ def _save_chat(user: CurrentUser, chat: Chat) -> None:
     )
 
 
-def _run_reply(user: CurrentUser, chat: Chat, content: str) -> ChatReply:
+def _run_reply(
+    user: CurrentUser, chat: Chat, content: str, community_only: bool = False
+) -> ChatReply:
     baby = get_baby_or_404(user, chat.baby_id)
     fam = families.get_family(user.family_id)
     profile = users.get_user(user.email)
@@ -52,10 +54,12 @@ def _run_reply(user: CurrentUser, chat: Chat, content: str) -> ChatReply:
     history = [{"role": m.role, "content": m.content} for m in chat.messages]
 
     day_start = time.fromisoformat((fam or {}).get("day_start") or "00:00")
+    sources: list[dict] = []
     try:
         reply = assistant.chat(
             baby, fam["timezone"] if fam else "UTC", parent_name, history,
             day_start=day_start, family_id=user.family_id,
+            community_only=community_only, sources_out=sources,
         )
     except openai.APIStatusError as e:
         raise HTTPException(502, f"Assistant is unavailable right now ({e.status_code})")
@@ -68,7 +72,7 @@ def _run_reply(user: CurrentUser, chat: Chat, content: str) -> ChatReply:
     chat.messages = chat.messages[-MAX_STORED_MESSAGES:]
     chat.updated_at = datetime.now(timezone.utc)
     _save_chat(user, chat)
-    return ChatReply(chat=chat, reply=reply)
+    return ChatReply(chat=chat, reply=reply, sources=sources)
 
 
 @router.get("/assistant/chats", response_model=list[ChatMeta])
@@ -110,7 +114,7 @@ def create_chat(
         updated_at=now,
         messages=[],
     )
-    return _run_reply(user, chat, body.content)
+    return _run_reply(user, chat, body.content, body.mode == "community_only")
 
 
 @router.post("/assistant/chats/{chat_id}/messages", response_model=ChatReply)
@@ -119,4 +123,4 @@ def send_message(
 ):
     _require_configured()
     chat = _load_chat(user, chat_id)
-    return _run_reply(user, chat, body.content)
+    return _run_reply(user, chat, body.content, body.mode == "community_only")
