@@ -7,6 +7,7 @@ Table shape (single table):
     FAMILY#<fid>        / INVITE#<code>                    invite (TTL), GSI1 by code
     FAMILY#<fid>        / BABY#<id> | FOOD#<id> | MEDPRESET#<id>
     FAMILY#<fid>        / TARGETHIST#<baby_id>#<date>       target snapshots
+    FAMILY#<fid>        / RECIPE#<baby_id>#<utc-iso>        feeding recipes (effective-dated)
     BABY#<bid>          / LOG#<utc-iso>#FEED|EVENT#<ulid>  timeline items, GSI1 by log id
 
 GSI1 resolves ids that arrive without their full key:
@@ -123,3 +124,8 @@ def gsi1_log_pk(log_id: str) -> str:
 
 def gsi1_invite_pk(code: str) -> str:
     return f"INVITE#{code}"
+
+
+def recipe_sk(baby_id: str, effective_at: datetime) -> str:
+    # Effective time last so a per-baby prefix query returns chronological order.
+    return f"RECIPE#{baby_id}#{iso_z(effective_at)}"

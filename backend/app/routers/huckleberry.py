@@ -22,6 +22,7 @@ from app.models.huckleberry import (
     HbConnectionUpdate,
     HbImport,
     HbMappingEntry,
+    HbRecipeMapping,
     HbSplitPart,
     HbStatus,
     HbSyncResult,
@@ -29,6 +30,7 @@ from app.models.huckleberry import (
 from app.repo import families, family_items, keys
 from app.routers.deps import get_baby_or_404, get_foods_map
 from app.services import huckleberry as hb
+from app.services import recipes as recipe_svc
 from app.services.nutrition import NutritionError
 
 router = APIRouter(tags=["huckleberry"])
@@ -48,8 +50,18 @@ def _status(user: CurrentUser, baby_id: str) -> HbStatus:
         return foods[food_id].name if food_id in foods else food_id
 
     mapping: dict[str, HbMappingEntry] = {}
+    current = None
+    if any(hb.is_recipe_mapping(t) for t in (conn.get("mapping") or {}).values()):
+        current = recipe_svc.recipe_in_effect(
+            recipe_svc.list_recipes(user.family_id, baby_id), datetime.now(timezone.utc)
+        )
     for bottle_type, target in (conn.get("mapping") or {}).items():
-        if isinstance(target, list):
+        if hb.is_recipe_mapping(target):
+            mapping[bottle_type] = HbMappingEntry(
+                recipe=True,
+                recipe_summary=recipe_svc.describe(current) if current else None,
+            )
+        elif isinstance(target, list):
             mapping[bottle_type] = HbMappingEntry(
                 split=[
                     HbSplitPart(
@@ -166,7 +178,9 @@ def update_connection(
         for bottle_type, target in body.mapping.items():
             if bottle_type not in HB_BOTTLE_TYPES:
                 raise HTTPException(422, f"Unknown Huckleberry bottle type: {bottle_type!r}")
-            if isinstance(target, list):
+            if isinstance(target, HbRecipeMapping):
+                stored[bottle_type] = {"mode": "recipe"}
+            elif isinstance(target, list):
                 if not target:
                     raise HTTPException(422, "A split mapping needs at least one part")
                 for part in target:

@@ -46,15 +46,24 @@ class HbSplitPart(BaseModel):
     parts: float = Field(gt=0)
 
 
-# A bottle type maps to a single liquid food, or to a proportional split
-# across several (mixed bottles, e.g. Huckleberry "Other" = 40 BM + 20 GA1).
-HbMappingValue = Union[str, list[HbSplitPart]]
+class HbRecipeMapping(BaseModel):
+    """Mixed bottle split by the feeding recipe in effect at the feed's time
+    (Settings → Recipe). Plan changes are recipe edits, never mapping edits."""
+
+    mode: Literal["recipe"]
+
+
+# A bottle type maps to a single liquid food, to a fixed proportional split
+# across several, or to "whatever the recipe said at that time".
+HbMappingValue = Union[str, list[HbSplitPart], HbRecipeMapping]
 
 
 class HbMappingEntry(BaseModel):
     food_id: Optional[str] = None
     food_name: Optional[str] = None
     split: Optional[list[HbSplitPart]] = None
+    recipe: bool = False
+    recipe_summary: Optional[str] = None  # the recipe in effect right now
 
 
 class HbConnectionUpdate(BaseModel):
@@ -88,6 +97,8 @@ class HbImport(BaseModel):
     amount_ml: Optional[float] = None
     minutes: Optional[float] = None  # breast: left+right nursing time
     diaper_kind: Optional[str] = None  # diaper: pee | poop | both
+    diaper_color: Optional[str] = None
+    diaper_consistency: Optional[str] = None
     pumped_ml: Optional[float] = None  # pumping
     side: Optional[str] = None
     duration_minutes: Optional[float] = None

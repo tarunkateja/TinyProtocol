@@ -13,7 +13,7 @@ from openai import OpenAI
 from app.config import settings
 from app.models.baby import Baby
 from app.services.summary import summarize_window
-from app.services.tz import day_window, to_local
+from app.services.tz import day_window, effective_day, to_local
 
 MAX_TOOL_ROUNDS = 5
 
@@ -67,6 +67,46 @@ TOOLS = [
                 "Get all stored lab results (analyte, value, unit, collection "
                 "date) — e.g. plasma lysine, glutarylcarnitine, carnitine — for "
                 "trend questions like 'how has her lysine level changed?'."
+            ),
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_poop_history",
+            "description": (
+                "Get the diaper/poop record for the last N days: per-day counts "
+                "(pee, poop), every poop with its time, hours since the previous "
+                "poop, color, consistency and the parent's note, plus hours since "
+                "the most recent poop and the longest gap. Call this for anything "
+                "about poop, bowel movements, constipation, 'how many days since "
+                "she pooped', stool consistency, or diaper counts."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "days": {
+                        "type": "integer",
+                        "description": "How many calendar days back to include, 1 to 92",
+                    }
+                },
+                "required": ["days"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_recipe_history",
+            "description": (
+                "Get the family's feeding recipe history: for each plan the "
+                "metabolic team ordered, when it took effect, the prepared bottle "
+                "(breast milk ml + batch formula ml per feed), the batch recipe "
+                "(powder grams, water to final volume), feeds per day, who ordered "
+                "it and notes. Call this for 'what is/was the recipe', 'when did "
+                "the plan change', batch yield questions, or when a clinic update "
+                "should state the current plan."
             ),
             "parameters": {"type": "object", "properties": {}},
         },
@@ -212,6 +252,10 @@ values from today's date above; never guess dates). Use get_recent_summary(hours
 only for rolling windows like "last 24 hours".
 - Direct-breastfeeding (latch) amounts in the logs are ESTIMATES from minutes × an \
 assumed rate unless marked as weighed. Note this when latch numbers are material to your answer.
+- The feeding plan (bottle composition, batch recipe) changes over time; get_recipe_history \
+says what was in effect when. Mixed bottles in the log are already split per that recipe.
+- Poop/constipation questions: use get_poop_history (gaps between poops, consistency, notes). \
+State gaps in days+hours; a gap of several days is a fact to report, not to diagnose.
 
 Data rules (absolute):
 - Every quantity you state (ml, grams, mg, counts, times) must come verbatim from a tool \
@@ -298,6 +342,77 @@ def _run_tool(
         ]
         rows.sort(key=lambda r: (r.get("analyte", ""), r.get("collected_date", "")))
         return json.dumps({"lab_results": rows})
+    if name == "get_poop_history":
+        from app.services.diapers import diaper_series
+
+        try:
+            days = max(1, min(92, int(tool_input.get("days", 7))))
+        except (TypeError, ValueError):
+            days = 7
+        today = effective_day(now, tz_name, day_start)
+        series = diaper_series(
+            baby.id, today - timedelta(days=days - 1), today, tz_name, day_start, now=now
+        )
+
+        def local(dt):
+            return to_local(dt, tz_name).strftime("%Y-%m-%d %H:%M") if dt else None
+
+        def gap_text(h):
+            if h is None:
+                return None
+            d, rem = divmod(int(round(h)), 24)
+            return f"{d}d {rem}h" if d else f"{rem}h"
+
+        return json.dumps({
+            "days": [
+                {"day": d.day.isoformat(), "poop": d.poop, "pee": d.pee, "changes": d.changes}
+                for d in series.days
+            ],
+            "poops": [
+                {
+                    "at": local(p.occurred_at),
+                    "since_previous_poop": gap_text(p.gap_hours),
+                    "color": p.color,
+                    "consistency": p.consistency,
+                    "note": p.note,
+                }
+                for p in series.poops
+            ],
+            "last_poop_at": local(series.last_poop_at),
+            "time_since_last_poop": gap_text(series.hours_since_last_poop),
+            "average_gap_between_poops_in_range": gap_text(series.avg_gap_hours),
+            "poops_in_range": len(series.poops),
+            "longest_gap_in_range": gap_text(series.longest_gap_hours),
+            "longest_gap_ended_at": local(series.longest_gap_ended_at),
+        })
+    if name == "get_recipe_history":
+        from app.services import recipes as recipe_svc
+
+        recipes = recipe_svc.list_recipes(family_id, baby.id)
+        out = []
+        for i, r in enumerate(recipes):
+            until = recipes[i + 1].effective_at if i + 1 < len(recipes) else None
+            out.append({
+                "label": r.label,
+                "effective_from": to_local(r.effective_at, tz_name).strftime("%Y-%m-%d %H:%M"),
+                "effective_until": (
+                    to_local(until, tz_name).strftime("%Y-%m-%d %H:%M") if until else "now"
+                ),
+                "per_feed": {
+                    "breast_milk_ml": r.breast_milk_ml,
+                    "batch_formula_ml": r.batch_ml,
+                    "prepared_ml": r.prepared_ml,
+                },
+                "batch": {
+                    "powders": [{"name": p.name, "grams": p.grams} for p in r.powders],
+                    "final_volume_ml": r.batch_final_volume_ml,
+                    "feeds_per_batch": r.feeds_per_batch,
+                },
+                "feeds_per_day": r.feeds_per_day,
+                "source": r.source,
+                "notes": r.notes,
+            })
+        return json.dumps({"recipes": out, "current": out[-1] if out else None})
     if name == "get_day_summary":
         try:
             day = date.fromisoformat(str(tool_input.get("date", "")))

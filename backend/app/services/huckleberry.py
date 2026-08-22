@@ -23,6 +23,7 @@ from app.models.feed import Feed, LatchComponent, LiquidComponent
 from app.models.food import Food
 from app.models.huckleberry import HbImport, HbSyncResult
 from app.repo import families, family_items, keys, logs
+from app.services import recipes as recipe_svc
 from app.services.nutrition import NutritionError, compute_components
 
 log = logging.getLogger(__name__)
@@ -247,6 +248,10 @@ def _normalize_diaper(hb_key: str, entry) -> Optional[dict]:
         "mode": "diaper",
         "occurred_at": datetime.fromtimestamp(float(entry.start), tz=timezone.utc),
         "diaper_kind": kind,
+        # Poop details live on the diaper row in Huckleberry (color,
+        # consistency) — the answer to "how did she poop" is in here.
+        "diaper_color": getattr(entry, "color", None) or None,
+        "diaper_consistency": getattr(entry, "consistency", None) or None,
         "notes": entry.notes,
         "last_updated": float(entry.lastUpdated) if entry.lastUpdated else None,
     }
@@ -357,6 +362,25 @@ def default_mapping(foods: dict[str, Food]) -> dict[str, str]:
     return mapping
 
 
+def is_recipe_mapping(target) -> bool:
+    return isinstance(target, dict) and target.get("mode") == "recipe"
+
+
+def mapping_defaults(mapping: dict) -> tuple[Optional[str], Optional[str]]:
+    """(breast milk food, batch/formula food) a recipe split falls back to
+    when the recipe itself doesn't name foods."""
+    bm = mapping.get("Breast Milk")
+    formula = mapping.get("Formula")
+    return (
+        bm if isinstance(bm, str) else None,
+        formula if isinstance(formula, str) else None,
+    )
+
+
+def load_recipes(family_id: str, baby_id: str) -> list:
+    return recipe_svc.list_recipes(family_id, baby_id)
+
+
 # --------------------------------------------------------------------------- #
 # Feed creation / update from imports
 # --------------------------------------------------------------------------- #
@@ -367,6 +391,7 @@ def _build_components(
     rate_override: Optional[float] = None,
     measured_ml: Optional[float] = None,
     volume_override: Optional[float] = None,
+    recipes: Optional[list] = None,
 ):
     if imp["mode"] == "bottle":
         target = mapping.get(imp.get("bottle_type") or "")
@@ -375,6 +400,17 @@ def _build_components(
                 f"No food mapped for Huckleberry bottle type {imp.get('bottle_type')!r}"
             )
         amount = volume_override or imp["amount_ml"]
+        if is_recipe_mapping(target):
+            recipe = recipe_svc.recipe_in_effect(recipes or [], imp["occurred_at"])
+            if recipe is None:
+                raise NutritionError(
+                    "No feeding recipe in effect at that time — add one in Settings → Recipe"
+                )
+            bm_default, batch_default = mapping_defaults(mapping)
+            try:
+                return recipe_svc.mixed_components(recipe, amount, bm_default, batch_default)
+            except ValueError as e:
+                raise NutritionError(str(e))
         if isinstance(target, list):
             # Mixed bottle: split the logged total by the configured ratio.
             total_parts = sum(float(p["parts"]) for p in target)
@@ -423,12 +459,16 @@ def create_feed_from_import(
     rate_override: Optional[float] = None,
     measured_ml: Optional[float] = None,
     volume_override: Optional[float] = None,
+    recipes: Optional[list] = None,
 ) -> Feed:
+    if recipes is None and is_recipe_mapping(mapping.get(imp.get("bottle_type") or "")):
+        recipes = load_recipes(family_id, baby.id)
     components = _build_components(
         imp, mapping, baby,
         rate_override=rate_override,
         measured_ml=measured_ml,
         volume_override=volume_override,
+        recipes=recipes,
     )
     comps, totals = compute_components(components, foods)
     feed = Feed(
@@ -450,7 +490,12 @@ def create_event_from_import(family_id: str, baby: Baby, imp: dict) -> "Event":
     from app.routers.events import event_item
 
     if imp["mode"] == "diaper":
-        fields = {"type": "diaper", "diaper_kind": imp["diaper_kind"]}
+        fields = {
+            "type": "diaper",
+            "diaper_kind": imp["diaper_kind"],
+            "diaper_color": imp.get("diaper_color"),
+            "diaper_consistency": imp.get("diaper_consistency"),
+        }
     elif imp["mode"] == "pumping":
         fields = {
             "type": "pumping",
@@ -503,6 +548,8 @@ def _maybe_update_imported_event(
         update={
             "occurred_at": event["occurred_at"],
             "diaper_kind": event.get("diaper_kind") or old.diaper_kind,
+            "diaper_color": event.get("diaper_color"),
+            "diaper_consistency": event.get("diaper_consistency"),
             "pumped_ml": event.get("pumped_ml") or old.pumped_ml,
             "side": event.get("side") or old.side,
             "duration_minutes": event.get("duration_minutes") or old.duration_minutes,
@@ -520,7 +567,13 @@ def _maybe_update_imported_event(
 
 
 def _maybe_update_imported_feed(
-    family_id: str, baby: Baby, existing: dict, event: dict, foods: dict[str, Food]
+    family_id: str,
+    baby: Baby,
+    existing: dict,
+    event: dict,
+    foods: dict[str, Food],
+    mapping: Optional[dict] = None,
+    recipes: Optional[list] = None,
 ) -> bool:
     """Upstream edit of an already-imported event: mirror it onto the feed,
     but only while the feed is still hb-linked and simple (one component)."""
@@ -536,7 +589,16 @@ def _maybe_update_imported_feed(
         return False  # deleted or manually edited — hands off
     feed = Feed.model_validate(raw)
 
-    if event["mode"] == "bottle" and all(c.kind == "liquid" for c in feed.components):
+    target = (mapping or {}).get(event.get("bottle_type") or "")
+    if event["mode"] == "bottle" and is_recipe_mapping(target):
+        # Recipe-mapped bottle: re-resolve against the recipe in effect at
+        # the (possibly edited) time — a 75 → 85 correction is a full bottle,
+        # not a scaled partial one.
+        try:
+            new_components = _build_components(event, mapping, baby, recipes=recipes)
+        except NutritionError:
+            return False
+    elif event["mode"] == "bottle" and all(c.kind == "liquid" for c in feed.components):
         # Scale every component so a split feed keeps its ratio when the
         # total is corrected upstream (60 -> 75 keeps 2:1 at 50 + 25).
         old_total = sum(c.volume_ml for c in feed.components)
@@ -582,14 +644,22 @@ def _maybe_update_imported_feed(
 
 
 def _auto_log(
-    family_id: str, baby: Baby, event: dict, foods: dict, mapping: dict, conn: dict
+    family_id: str,
+    baby: Baby,
+    event: dict,
+    foods: dict,
+    mapping: dict,
+    conn: dict,
+    recipes: Optional[list] = None,
 ) -> Optional[str]:
     """Create the feed/event for an auto-imported item; None = leave pending."""
     mode = event["mode"]
     if mode == "bottle":
         if not mapping.get(event.get("bottle_type") or ""):
             return None  # unmapped type — a human decides
-        return create_feed_from_import(family_id, baby, event, foods, mapping).id
+        return create_feed_from_import(
+            family_id, baby, event, foods, mapping, recipes=recipes
+        ).id
     if mode == "breast":
         if not mapping.get("Breast Milk"):
             return None
@@ -618,6 +688,8 @@ def _import_fields(event: dict, status: str, mapping: dict[str, str], now_iso: s
         "amount_ml": event.get("amount_ml"),
         "minutes": event.get("minutes"),
         "diaper_kind": event.get("diaper_kind"),
+        "diaper_color": event.get("diaper_color"),
+        "diaper_consistency": event.get("diaper_consistency"),
         "pumped_ml": event.get("pumped_ml"),
         "side": event.get("side"),
         "duration_minutes": event.get("duration_minutes"),
@@ -643,6 +715,8 @@ def _event_changed(existing: dict, event: dict) -> bool:
         or existing.get("minutes") != event.get("minutes")
         or existing.get("bottle_type") != event.get("bottle_type")
         or existing.get("diaper_kind") != event.get("diaper_kind")
+        or (existing.get("diaper_color") or None) != (event.get("diaper_color") or None)
+        or (existing.get("diaper_consistency") or None) != (event.get("diaper_consistency") or None)
         or existing.get("pumped_ml") != event.get("pumped_ml")
         or existing.get("med_name") != event.get("med_name")
         or existing.get("dose_amount") != event.get("dose_amount")
@@ -687,6 +761,9 @@ async def sync_baby(family_id: str, baby_id: str) -> HbSyncResult:
     }
     mapping: dict = conn.get("mapping") or {}
     auto_import = bool(conn.get("auto_import"))
+    recipes = load_recipes(family_id, baby_id) if any(
+        is_recipe_mapping(t) for t in mapping.values()
+    ) else []
 
     existing_items = family_items.list_by_prefix(family_id, f"HBIMPORT#{baby_id}#")
     # Self-heal imports stored under legacy container-prefixed keys: rewrite
@@ -721,7 +798,9 @@ async def sync_baby(family_id: str, baby_id: str) -> HbSyncResult:
             fields["created_at"] = now_iso
             if auto_import:
                 try:
-                    log_id = _auto_log(family_id, baby, event, foods, mapping, conn)
+                    log_id = _auto_log(
+                        family_id, baby, event, foods, mapping, conn, recipes=recipes
+                    )
                 except NutritionError as e:
                     log.warning("Auto-import failed, leaving pending: %s", e)
                     log_id = None
@@ -749,7 +828,9 @@ async def sync_baby(family_id: str, baby_id: str) -> HbSyncResult:
             if event["mode"] in ("diaper", "medication", "pumping"):
                 updated_ok = _maybe_update_imported_event(family_id, baby, existing, event)
             else:
-                updated_ok = _maybe_update_imported_feed(family_id, baby, existing, event, foods)
+                updated_ok = _maybe_update_imported_feed(
+                    family_id, baby, existing, event, foods, mapping=mapping, recipes=recipes
+                )
             if updated_ok:
                 fields = _import_fields(event, "imported", mapping, now_iso)
                 fields["baby_id"] = baby_id
