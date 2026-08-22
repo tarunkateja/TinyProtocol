@@ -44,6 +44,8 @@ class DiaperBrief(BaseModel):
     id: str
     occurred_at: datetime
     diaper_kind: DiaperKind
+    color: Optional[str] = None
+    consistency: Optional[str] = None
     note: Optional[str] = None
 
 
@@ -150,6 +152,43 @@ class DailyIntakeSeries(BaseModel):
     from_day: date
     to_day: date
     days: list[DailyIntakeDay]
+
+
+class DiaperDay(BaseModel):
+    """One local day's diaper counts ('both' counts as pee AND poop)."""
+
+    day: date
+    changes: int = 0
+    pee: int = 0
+    poop: int = 0
+
+
+class PoopEvent(BaseModel):
+    id: str
+    occurred_at: datetime
+    diaper_kind: DiaperKind
+    color: Optional[str] = None
+    consistency: Optional[str] = None
+    note: Optional[str] = None
+    # Hours since the previous poop (None for the first one we know of).
+    gap_hours: Optional[float] = None
+
+
+class DiaperSeries(BaseModel):
+    """Per-day diaper counts plus every poop with the gap before it — the
+    constipation view: how often, how long between, what it looked like."""
+
+    baby_id: str
+    from_day: date
+    to_day: date
+    days: list[DiaperDay]
+    poops: list[PoopEvent]  # ascending, within the range
+    last_poop_at: Optional[datetime] = None  # newest poop up to now (may predate the range)
+    hours_since_last_poop: Optional[float] = None
+    longest_gap_hours: Optional[float] = None  # among poops in the range
+    longest_gap_ended_at: Optional[datetime] = None
+    # Mean hours between consecutive poops, over the poops in the range.
+    avg_gap_hours: Optional[float] = None
 
 
 class WeightPoint(BaseModel):

@@ -26,6 +26,10 @@ class _EventFields(BaseModel):
     side: Optional[PumpSide] = None
     duration_minutes: Optional[float] = Field(None, gt=0)
     diaper_kind: Optional[DiaperKind] = None  # diaper
+    # Poop details as Huckleberry records them (yellow/green/…, hard/loose/…);
+    # free strings so a parent can type their own words too.
+    diaper_color: Optional[str] = Field(None, max_length=40)
+    diaper_consistency: Optional[str] = Field(None, max_length=40)
     weight_g: Optional[float] = Field(None, gt=0)  # weight check-in
     note: Optional[str] = None
 
@@ -57,6 +61,8 @@ class EventUpdate(BaseModel):
     side: Optional[PumpSide] = None
     duration_minutes: Optional[float] = Field(None, gt=0)
     diaper_kind: Optional[DiaperKind] = None
+    diaper_color: Optional[str] = Field(None, max_length=40)
+    diaper_consistency: Optional[str] = Field(None, max_length=40)
     weight_g: Optional[float] = Field(None, gt=0)
     note: Optional[str] = None
 

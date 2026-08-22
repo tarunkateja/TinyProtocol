@@ -13,6 +13,7 @@ from app.models.summary import (
     Summary,
     WeightPoint,
     WeightSeries,
+    DiaperSeries,
 )
 from app.repo import families, keys, logs
 from app.routers.deps import get_baby_or_404
@@ -139,6 +140,29 @@ def daily_intake(
         from_day=from_day,
         to_day=to_day,
         days=[buckets[d] for d in sorted(buckets)],
+    )
+
+
+@router.get("/babies/{baby_id}/analytics/diapers", response_model=DiaperSeries)
+def diaper_history(
+    baby_id: str,
+    from_day: date = Query(alias="from"),
+    to_day: date = Query(alias="to"),
+    user: CurrentUser = Depends(get_current_user),
+):
+    """Per-day diaper counts + every poop with the gap since the previous
+    one (constipation view). Read-only."""
+    if from_day > to_day:
+        raise HTTPException(422, "from must be on or before to")
+    if (to_day - from_day).days > 92:
+        raise HTTPException(422, "Range is limited to 92 days")
+    baby = get_baby_or_404(user, baby_id)
+    fam = _family(user.family_id)
+    from app.services.diapers import diaper_series
+
+    return diaper_series(
+        baby.id, from_day, to_day, fam["timezone"],
+        time.fromisoformat(fam.get("day_start") or "00:00"),
     )
 
 

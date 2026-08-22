@@ -152,6 +152,7 @@ def build_summary(
                 DiaperBrief(
                     id=ev.id, occurred_at=ev.occurred_at,
                     diaper_kind=ev.diaper_kind or "pee", note=ev.note,
+                    color=ev.diaper_color, consistency=ev.diaper_consistency,
                 )
             )
         elif ev.type == "weight":
