@@ -3,7 +3,6 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import * as Clipboard from 'expo-clipboard';
 import React, { useState } from 'react';
 import {
-  Alert,
   Pressable,
   ScrollView,
   Share,
@@ -12,12 +11,13 @@ import {
   View,
 } from 'react-native';
 
-import { api } from '../../lib/api';
-import { fmtLbOz, fmtNum } from '../../lib/format';
-import { useBaby } from '../../lib/hooks';
-import { colors, fonts, radius, spacing } from '../../lib/theme';
-import type { Summary } from '../../lib/types';
-import { Button, Card, Chip, Muted, SectionTitle } from '../../components/ui';
+import { api } from '../lib/api';
+import { fmtNum, fmtWeight } from '../lib/format';
+import { useBaby } from '../lib/hooks';
+import { colors, fonts, radius, spacing } from '../lib/theme';
+import type { Summary } from '../lib/types';
+import { Button, Card, Chip, Muted, SectionTitle } from '../components/ui';
+import { showAlert } from '../lib/dialogs';
 
 type Window = { label: string; hours?: number; since?: string; custom?: boolean; prompt: string };
 
@@ -88,7 +88,7 @@ function timelineLines(
   }
   if (include.has('events')) {
     for (const w of s.weights ?? []) {
-      entries.push({ at: w.occurred_at, text: `⚖️ weight ${fmtLbOz(w.weight_g)}` });
+      entries.push({ at: w.occurred_at, text: `⚖️ weight ${fmtWeight(w.weight_g)}` });
     }
     for (const [label, evs] of [
       ['spit-up', s.spit_ups],
@@ -187,7 +187,7 @@ export default function SummaryScreen() {
       setDraft(resp.reply);
       qc.invalidateQueries({ queryKey: ['chats'] });
     } catch (e: any) {
-      Alert.alert('Could not draft', e.message);
+      showAlert('Could not draft', e.message);
     } finally {
       setDrafting(false);
     }
@@ -223,8 +223,6 @@ export default function SummaryScreen() {
             <DateTimePicker
               value={fromDt}
               mode="datetime"
-              themeVariant="light"
-              textColor={colors.text}
               maximumDate={new Date()}
               onChange={(_, d) => d && setFromDt(d)}
             />
@@ -234,8 +232,6 @@ export default function SummaryScreen() {
             <DateTimePicker
               value={toDt}
               mode="datetime"
-              themeVariant="light"
-              textColor={colors.text}
               maximumDate={new Date()}
               onChange={(_, d) => d && setToDt(d)}
             />

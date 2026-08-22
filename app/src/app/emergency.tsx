@@ -2,7 +2,6 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import React, { useEffect, useState } from 'react';
 import {
-  Alert,
   Linking,
   Pressable,
   ScrollView,
@@ -16,6 +15,7 @@ import { api } from '../lib/api';
 import { colors, fonts, radius, spacing } from '../lib/theme';
 import type { CareProfile } from '../lib/types';
 import { Button, Card, Muted, SectionTitle } from '../components/ui';
+import { showAlert } from '../lib/dialogs';
 
 const CACHE_KEY = 'tinyprotocol_care_profile_cache';
 
@@ -53,7 +53,7 @@ export default function Emergency() {
       qc.invalidateQueries({ queryKey: ['careProfile'] });
       setEditing(false);
     } catch (e: any) {
-      Alert.alert('Could not save', e.message);
+      showAlert('Could not save', e.message);
     } finally {
       setSaving(false);
     }
@@ -231,7 +231,7 @@ const styles = StyleSheet.create({
   phone: { color: colors.primary, fontFamily: fonts.heavy, fontSize: 15 },
   editLabel: { fontFamily: fonts.bold, color: colors.text, fontSize: 14, marginBottom: 4 },
   editBox: {
-    backgroundColor: '#fff',
+    backgroundColor: colors.card,
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: radius.md,

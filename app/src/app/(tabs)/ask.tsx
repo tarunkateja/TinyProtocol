@@ -2,7 +2,6 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import React, { useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   FlatList,
   KeyboardAvoidingView,
   Platform,
@@ -19,6 +18,7 @@ import { useBaby } from '../../lib/hooks';
 import { colors, fonts, radius, spacing } from '../../lib/theme';
 import type { ChatMeta } from '../../lib/types';
 import { Muted } from '../../components/ui';
+import { showAlert } from '../../lib/dialogs';
 
 interface ChatMsg {
   role: 'user' | 'assistant';
@@ -78,12 +78,12 @@ export default function Ask() {
       setMessages(full.messages.map((m) => ({ role: m.role, content: sanitize(m.content) })));
       setShowHistory(false);
     } catch (e: any) {
-      Alert.alert('Could not open chat', e.message);
+      showAlert('Could not open chat', e.message);
     }
   };
 
   const removeChat = (meta: ChatMeta) => {
-    Alert.alert(`Delete "${meta.title}"?`, 'This removes it for both parents.', [
+    showAlert(`Delete "${meta.title}"?`, 'This removes it for both parents.', [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Delete',
@@ -335,7 +335,7 @@ const styles = StyleSheet.create({
   },
   input: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: colors.card,
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: radius.lg,

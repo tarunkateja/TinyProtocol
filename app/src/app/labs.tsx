@@ -1,12 +1,13 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import React, { useMemo, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { api } from '../lib/api';
 import { fmtNum, localDateString } from '../lib/format';
 import { colors, fonts, radius, spacing } from '../lib/theme';
 import type { LabResult } from '../lib/types';
-import { Button, Card, Chip, Field, Muted, SectionTitle, Stepper } from '../components/ui';
+import { Button, Card, Chip, Field, Muted, SectionTitle, Stepper, DateField } from '../components/ui';
+import { showAlert } from '../lib/dialogs';
 
 const COMMON_ANALYTES = ['lysine', 'glutarylcarnitine', 'free_carnitine'];
 
@@ -40,12 +41,12 @@ export default function Labs() {
       setAdding(false);
       setValue(0);
     } catch (e: any) {
-      Alert.alert('Could not save', e.message);
+      showAlert('Could not save', e.message);
     }
   };
 
   const remove = (lab: LabResult) => {
-    Alert.alert(`Delete ${lab.analyte} ${fmtNum(lab.value)} ${lab.unit}?`, lab.collected_date, [
+    showAlert(`Delete ${lab.analyte} ${fmtNum(lab.value)} ${lab.unit}?`, lab.collected_date, [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Delete',
@@ -89,7 +90,7 @@ export default function Labs() {
           <Text style={styles.label}>Value</Text>
           <Stepper value={value} onChange={setValue} step={1} />
           <Field label="Unit" value={unit} onChangeText={setUnit} />
-          <Field label="Collected date (YYYY-MM-DD)" value={date} onChangeText={setDate} />
+          <DateField label="Collected date" value={date} onChange={setDate} maximumDate={new Date()} />
           <Button title="Save result" onPress={save} disabled={value <= 0} />
         </Card>
       )}

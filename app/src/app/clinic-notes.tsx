@@ -1,7 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import React, { useState } from 'react';
 import {
-  Alert,
   FlatList,
   Pressable,
   StyleSheet,
@@ -14,6 +13,7 @@ import { api } from '../lib/api';
 import { colors, fonts, radius, spacing } from '../lib/theme';
 import type { ClinicNote } from '../lib/types';
 import { Muted } from '../components/ui';
+import { showAlert } from '../lib/dialogs';
 
 export default function ClinicNotes() {
   const qc = useQueryClient();
@@ -36,7 +36,7 @@ export default function ClinicNotes() {
   };
 
   const remove = (n: ClinicNote) => {
-    Alert.alert('Delete this question?', n.text, [
+    showAlert('Delete this question?', n.text, [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Delete',
@@ -99,7 +99,7 @@ const styles = StyleSheet.create({
   inputRow: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.md },
   input: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: colors.card,
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: radius.md,

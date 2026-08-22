@@ -3,7 +3,7 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import * as Notifications from 'expo-notifications';
 import { useQuery } from '@tanstack/react-query';
 import React, { useEffect, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 
 import { api } from '../lib/api';
 import {
@@ -18,6 +18,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useBaby, useFamily } from '../lib/hooks';
 import { colors, fonts, radius, spacing } from '../lib/theme';
 import { Button, Card, Muted, SectionTitle, Stepper } from '../components/ui';
+import { showAlert } from '../lib/dialogs';
 
 interface Reminder {
   notifId: string;
@@ -85,7 +86,7 @@ export default function Reminders() {
         kind === 'feed' ? lastFeedAt : lastMedAt,
       );
     } catch (e: any) {
-      Alert.alert('Could not save', e.message);
+      showAlert('Could not save', e.message);
     }
   };
 
@@ -210,8 +211,6 @@ export default function Reminders() {
           value={dailyTime}
           mode="time"
           display="spinner"
-          themeVariant="light"
-          textColor={colors.text}
           onChange={(_, d) => d && setDailyTime(d)}
         />
         <Button title="Add daily reminder" onPress={addDaily} />

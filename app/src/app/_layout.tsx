@@ -76,6 +76,14 @@ function RootNavigator() {
           name="analytics"
           options={{ presentation: 'modal', title: 'Trends' }}
         />
+        <Stack.Screen name="settings" options={{ presentation: 'modal', title: 'Settings' }} />
+        <Stack.Screen name="plan" options={{ presentation: 'modal', title: 'Plan' }} />
+        <Stack.Screen name="summary" options={{ presentation: 'modal', title: 'Clinic update' }} />
+        <Stack.Screen name="totals" options={{ presentation: 'modal', title: 'Day totals' }} />
+        <Stack.Screen
+          name="recipe"
+          options={{ presentation: 'modal', title: 'Feeding recipe' }}
+        />
         <Stack.Screen
           name="huckleberry"
           options={{ presentation: 'modal', title: 'Huckleberry sync' }}

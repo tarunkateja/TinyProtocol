@@ -5,7 +5,6 @@ import * as ImagePicker from 'expo-image-picker';
 import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   Linking,
   Pressable,
   ScrollView,
@@ -18,7 +17,8 @@ import { api } from '../lib/api';
 import { fmtNum } from '../lib/format';
 import { colors, fonts, radius, spacing } from '../lib/theme';
 import type { CareDoc } from '../lib/types';
-import { Button, Card, Field, Muted, SectionTitle } from '../components/ui';
+import { Button, Card, DateField, Field, Muted, SectionTitle } from '../components/ui';
+import { showAlert } from '../lib/dialogs';
 
 const STATUS_META: Record<string, { label: string; color: string }> = {
   uploaded: { label: 'Uploaded', color: colors.muted },
@@ -56,7 +56,7 @@ export default function Docs() {
       await api.processDoc(created.doc.id);
       qc.invalidateQueries({ queryKey: ['docs'] });
     } catch (e: any) {
-      Alert.alert('Upload failed', e.message);
+      showAlert('Upload failed', e.message);
     } finally {
       setBusy(false);
     }
@@ -93,12 +93,12 @@ export default function Docs() {
       await api.processDoc(doc.id);
       qc.invalidateQueries({ queryKey: ['docs'] });
     } catch (e: any) {
-      Alert.alert('Could not retry', e.message);
+      showAlert('Could not retry', e.message);
     }
   };
 
   const removeDoc = (doc: CareDoc) => {
-    Alert.alert(`Delete "${doc.title}"?`, 'Removes the file and its extracted info.', [
+    showAlert(`Delete "${doc.title}"?`, 'Removes the file and its extracted info.', [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Delete',
@@ -252,7 +252,7 @@ function LabReview({ doc }: { doc: CareDoc }) {
       setSelected(new Set());
       qc.invalidateQueries({ queryKey: ['labs'] });
     } catch (e: any) {
-      Alert.alert('Could not save', e.message);
+      showAlert('Could not save', e.message);
     } finally {
       setSaving(false);
     }
@@ -289,19 +289,14 @@ function LabReview({ doc }: { doc: CareDoc }) {
               ⚠️ The test date wasn't visible in this document — enter it below.
             </Text>
           )}
-          <Field
-            label="Test date (YYYY-MM-DD)"
-            value={date}
-            onChangeText={setDate}
-            placeholder="2026-07-01"
-          />
+          <DateField label="Test date" value={date} onChange={setDate} maximumDate={new Date()} />
           <Button
             title={saving ? 'Saving…' : `Add ${selected.size} to Labs`}
             onPress={addSelected}
             disabled={!validDate || saving}
           />
           {!validDate && date.trim().length > 0 && (
-            <Muted style={{ marginTop: 4 }}>Date must be YYYY-MM-DD.</Muted>
+            <Muted style={{ marginTop: 4 }}>Pick the test date.</Muted>
           )}
         </>
       )}

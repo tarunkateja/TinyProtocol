@@ -3,12 +3,12 @@ import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import { api } from '../../lib/api';
-import { addDays, effectiveDayString, fmtDateHeading, fmtNum } from '../../lib/format';
-import { useBaby, useFamily } from '../../lib/hooks';
-import { colors, eventTheme, fonts, radius, spacing } from '../../lib/theme';
-import { Card, Muted, SectionTitle } from '../../components/ui';
-import type { Summary } from '../../lib/types';
+import { api } from '../lib/api';
+import { addDays, effectiveDayString, fmtDateHeading, fmtNum } from '../lib/format';
+import { useBaby, useFamily } from '../lib/hooks';
+import { colors, eventTheme, fonts, radius, spacing } from '../lib/theme';
+import { Card, Muted, SectionTitle } from '../components/ui';
+import type { Summary } from '../lib/types';
 
 export default function Totals() {
   const router = useRouter();
@@ -41,7 +41,7 @@ export default function Totals() {
         </Pressable>
       </View>
 
-      <Pressable style={styles.trendsLink} onPress={() => router.push('/analytics')}>
+      <Pressable style={styles.trendsLink} onPress={() => router.push('/(tabs)/trends')}>
         <Text style={styles.trendsLinkText}>📈 Trends & growth</Text>
         <Text style={styles.trendsLinkArrow}>›</Text>
       </Pressable>

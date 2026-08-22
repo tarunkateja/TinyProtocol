@@ -1,13 +1,14 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useState } from 'react';
-import { Alert, Linking, Pressable, ScrollView, Switch, Text, View } from 'react-native';
+import { Linking, Pressable, ScrollView, Switch, Text, View } from 'react-native';
 
 import { api } from '../lib/api';
 import { useFoods } from '../lib/hooks';
 import { colors, fonts, spacing } from '../lib/theme';
 import type { FoodCategory, UnitBasis } from '../lib/types';
 import { Button, Card, Chip, Field, Muted, Stepper } from '../components/ui';
+import { showAlert } from '../lib/dialogs';
 
 const CATEGORIES: [FoodCategory, string][] = [
   ['breast_milk', 'Breast milk'],
@@ -61,7 +62,7 @@ export default function EditFood() {
       qc.invalidateQueries({ queryKey: ['foods'] });
       router.back();
     } catch (e: any) {
-      Alert.alert('Could not save', e.message);
+      showAlert('Could not save', e.message);
       setBusy(false);
     }
   };

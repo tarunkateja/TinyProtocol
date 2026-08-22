@@ -1,11 +1,12 @@
 import { Link } from 'expo-router';
 import React, { useState } from 'react';
-import { Alert, KeyboardAvoidingView, Platform, StyleSheet, Text, View } from 'react-native';
+import { KeyboardAvoidingView, Platform, StyleSheet, Text, View } from 'react-native';
 
 import { api } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { colors, spacing } from '../../lib/theme';
 import { Button, Field, Muted } from '../../components/ui';
+import { showAlert } from '../../lib/dialogs';
 
 export default function Login() {
   const { signIn } = useAuth();
@@ -19,7 +20,7 @@ export default function Login() {
       const resp = await api.login({ email: email.trim(), password });
       await signIn(resp.access_token);
     } catch (e: any) {
-      Alert.alert('Sign in failed', e.message);
+      showAlert('Sign in failed', e.message);
     } finally {
       setBusy(false);
     }

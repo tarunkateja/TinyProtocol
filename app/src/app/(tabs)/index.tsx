@@ -3,7 +3,6 @@ import { useFocusEffect, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   FlatList,
   Pressable,
   RefreshControl,
@@ -17,7 +16,7 @@ import {
   addDays,
   effectiveDayString,
   fmtDateHeading,
-  fmtLbOz,
+  fmtWeight,
   fmtNum,
   fmtTime,
 } from '../../lib/format';
@@ -26,6 +25,7 @@ import { useBaby, useFamily, useInvalidateLogs } from '../../lib/hooks';
 import { colors, eventTheme, fonts, radius, spacing } from '../../lib/theme';
 import type { CareEvent, Feed, TimelineEntry } from '../../lib/types';
 import { Button, Card, Field, Muted } from '../../components/ui';
+import { showAlert } from '../../lib/dialogs';
 
 export default function Today() {
   const router = useRouter();
@@ -122,7 +122,7 @@ export default function Today() {
 
   const confirmDelete = (entry: TimelineEntry) => {
     const isFeed = entry.item_type === 'FEED';
-    Alert.alert(`Delete this ${isFeed ? 'feed' : 'entry'}?`, 'This cannot be undone.', [
+    showAlert(`Delete this ${isFeed ? 'feed' : 'entry'}?`, 'This cannot be undone.', [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Delete',
@@ -473,7 +473,7 @@ function EventRow({
   } else if (event.type === 'diaper') {
     title = `Diaper — ${event.diaper_kind === 'both' ? 'pee + poop' : event.diaper_kind}`;
   } else if (event.type === 'weight') {
-    title = `Weight · ${fmtLbOz(event.weight_g ?? 0)}`;
+    title = `Weight · ${fmtWeight(event.weight_g ?? 0)}`;
   } else {
     if (event.severity) bits.push(event.severity);
     if (event.med_name) bits.push(event.med_name);

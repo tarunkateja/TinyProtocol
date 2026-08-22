@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
-import { Alert, ScrollView } from 'react-native';
+import { ScrollView } from 'react-native';
 
 import { api } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { spacing, colors } from '../../lib/theme';
 import { Button, Field, Muted, SectionTitle } from '../../components/ui';
+import { showAlert } from '../../lib/dialogs';
 
 export default function Register() {
   const { signIn } = useAuth();
@@ -27,7 +28,7 @@ export default function Register() {
       });
       await signIn(resp.access_token);
     } catch (e: any) {
-      Alert.alert('Could not create account', e.message);
+      showAlert('Could not create account', e.message);
     } finally {
       setBusy(false);
     }

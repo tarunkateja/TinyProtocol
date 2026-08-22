@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
-import { Alert, ScrollView } from 'react-native';
+import { ScrollView } from 'react-native';
 
 import { api } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { colors, spacing } from '../../lib/theme';
 import { Button, Field, Muted } from '../../components/ui';
+import { showAlert } from '../../lib/dialogs';
 
 export default function Join() {
   const { signIn } = useAuth();
@@ -25,7 +26,7 @@ export default function Join() {
       });
       await signIn(resp.access_token);
     } catch (e: any) {
-      Alert.alert('Could not join', e.message);
+      showAlert('Could not join', e.message);
     } finally {
       setBusy(false);
     }

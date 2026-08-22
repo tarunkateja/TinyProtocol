@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Notifications from 'expo-notifications';
-import { Alert } from 'react-native';
+import { showAlert } from './dialogs';
 
 /** Rhythm reminders: remind N hours after the LAST LOGGED anchor (feeds →
  * newest feed, meds → newest medication event).
@@ -80,7 +80,7 @@ export async function ensureNotifPermission(): Promise<boolean> {
   if (current.granted) return true;
   const req = await Notifications.requestPermissionsAsync();
   if (!req.granted) {
-    Alert.alert(
+    showAlert(
       'Notifications are off',
       'Allow notifications for TinyProtocol in iPhone Settings to get reminders.',
     );
