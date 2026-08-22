@@ -13,6 +13,7 @@ import type {
   ChatMeta,
   ChatReply,
   DailyIntakeSeries,
+  DiaperSeries,
   Family,
   Feed,
   FeedComponentIn,
@@ -28,6 +29,9 @@ import type {
   TimelineEntry,
   TokenResponse,
   WeightSeries,
+  Recipe,
+  RecipeIn,
+  ResplitResult,
 } from './types';
 
 export const API_URL =
@@ -208,6 +212,20 @@ export const api = {
   docDownloadUrl: (id: string) => get<{ url: string }>(`/docs/${id}/download`),
   deleteDoc: (id: string) => del<void>(`/docs/${id}`),
 
+  // Feeding recipes
+  listRecipes: (babyId: string) => get<Recipe[]>(`/babies/${babyId}/recipes`),
+  currentRecipe: (babyId: string) => get<Recipe | null>(`/babies/${babyId}/recipes/current`),
+  createRecipe: (babyId: string, body: RecipeIn) => post<Recipe>(`/babies/${babyId}/recipes`, body),
+  updateRecipe: (babyId: string, id: string, body: Partial<RecipeIn>) =>
+    patch<Recipe>(`/babies/${babyId}/recipes/${id}`, body),
+  deleteRecipe: (babyId: string, id: string) => del<void>(`/babies/${babyId}/recipes/${id}`),
+  resplit: (babyId: string, fromIso: string, toIso: string, apply: boolean) =>
+    post<ResplitResult>(
+      `/babies/${babyId}/recipes/resplit?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(
+        toIso,
+      )}&apply=${apply}`,
+    ),
+
   // Huckleberry sync
   hbStatus: (babyId: string) => get<HbStatus>(`/babies/${babyId}/huckleberry`),
   hbConnect: (babyId: string, body: { email: string; password: string; child_uid?: string }) =>
@@ -216,7 +234,7 @@ export const api = {
     babyId: string,
     body: {
       auto_import?: boolean;
-      mapping?: Record<string, string | { food_id: string; parts: number }[]>;
+      mapping?: Record<string, string | { food_id: string; parts: number }[] | { mode: 'recipe' }>;
       latch_rate_ml_per_10min?: number;
     },
   ) => patch<HbStatus>(`/babies/${babyId}/huckleberry`, body),
@@ -253,6 +271,8 @@ export const api = {
     get<Summary>(`/babies/${babyId}/days/${day}`),
   dailyIntake: (babyId: string, from: string, to: string) =>
     get<DailyIntakeSeries>(`/babies/${babyId}/analytics/daily?from=${from}&to=${to}`),
+  diaperHistory: (babyId: string, from: string, to: string) =>
+    get<DiaperSeries>(`/babies/${babyId}/analytics/diapers?from=${from}&to=${to}`),
   weightHistory: (babyId: string) =>
     get<WeightSeries>(`/babies/${babyId}/analytics/weights`),
   rollingSummary: (

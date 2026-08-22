@@ -8,14 +8,16 @@ import {
   effectiveDayString,
   fmtAge,
   fmtDateHeading,
+  fmtKg,
   fmtLbOz,
+  fmtWeight,
   fmtNum,
   gToOz,
 } from '../lib/format';
 import { useBaby, useFamily } from '../lib/hooks';
 import { colors, eventTheme, fonts, radius, spacing } from '../lib/theme';
 import { Card, Chip, Muted, SectionTitle } from '../components/ui';
-import type { DailyIntakeDay, WeightSeries } from '../lib/types';
+import type { DailyIntakeDay, DiaperSeries, WeightSeries } from '../lib/types';
 
 const RANGES = [7, 14, 30] as const;
 const CHART_HEIGHT = 190;
@@ -185,9 +187,129 @@ export default function Analytics() {
         chart only reads the feed log — timestamps are never changed.
       </Muted>
 
+      <SectionTitle>💩 Poop & diapers</SectionTitle>
+      <PoopSection babyId={baby?.id} from={from} to={effectiveToday} />
+
       <SectionTitle>Growth</SectionTitle>
       <GrowthSection babyId={baby?.id} babyName={baby?.name ?? 'baby'} />
     </ScrollView>
+  );
+}
+
+/** "3d 4h" / "16h" from a number of hours. */
+function fmtGap(hours: number | null | undefined): string {
+  if (hours == null) return '—';
+  const total = Math.round(hours);
+  const d = Math.floor(total / 24);
+  const h = total % 24;
+  return d > 0 ? `${d}d ${h}h` : `${h}h`;
+}
+
+function fmtWhen(iso: string): string {
+  return new Date(iso).toLocaleString([], {
+    weekday: 'short',
+    month: 'numeric',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+}
+
+const POOP_COLOR = '#8D6E63';
+const POOP_CHART_H = 90;
+
+function PoopSection({ babyId, from, to }: { babyId?: string; from: string; to: string }) {
+  const q = useQuery({
+    queryKey: ['diaperHistory', babyId, from, to],
+    queryFn: () => api.diaperHistory(babyId!, from, to),
+    enabled: !!babyId,
+  });
+  const s: DiaperSeries | undefined = q.data;
+  if (q.isLoading || !s) {
+    return (
+      <Card>
+        <ActivityIndicator style={{ height: 60 }} color={colors.primary} />
+      </Card>
+    );
+  }
+  const maxPoop = Math.max(1, ...s.days.map((d) => d.poop));
+  const poopsNewestFirst = [...s.poops].reverse();
+  const sinceLast = s.hours_since_last_poop;
+  const sinceLastColor =
+    sinceLast == null ? undefined : sinceLast >= 72 ? colors.danger : sinceLast >= 48 ? '#D97706' : undefined;
+
+  return (
+    <>
+      <Card>
+        <View style={styles.growthStats}>
+          <GrowthStat label="Since last poop" value={fmtGap(sinceLast)} color={sinceLastColor} />
+          <GrowthStat label="Avg between poops" value={fmtGap(s.avg_gap_hours)} />
+          <GrowthStat label="Longest gap" value={fmtGap(s.longest_gap_hours)} />
+        </View>
+        <Muted style={{ marginTop: 4 }}>
+          {s.poops.length} {s.poops.length === 1 ? 'poop' : 'poops'} in this range
+          {s.last_poop_at ? ` · last ${fmtWhen(s.last_poop_at)}` : ' · no poop on record'}
+          {s.longest_gap_ended_at ? ` · longest gap ended ${fmtWhen(s.longest_gap_ended_at)}` : ''}
+        </Muted>
+
+        <View style={[styles.columns, { height: POOP_CHART_H, marginTop: spacing.md, alignItems: 'flex-end' }]}>
+          {s.days.map((d) => (
+            <View key={d.day} style={{ flex: 1, alignItems: 'center', justifyContent: 'flex-end', height: POOP_CHART_H }}>
+              {d.poop > 0 ? (
+                <Text style={{ fontSize: 10, color: colors.muted, marginBottom: 2 }}>{d.poop}</Text>
+              ) : null}
+              <View
+                style={{
+                  width: '60%',
+                  height: d.poop > 0 ? Math.max(4, (d.poop / maxPoop) * (POOP_CHART_H - 18)) : 2,
+                  backgroundColor: d.poop > 0 ? POOP_COLOR : colors.border,
+                  borderRadius: 3,
+                }}
+              />
+            </View>
+          ))}
+        </View>
+        <View style={styles.xLabels}>
+          {s.days.map((d, i) => {
+            const every = Math.ceil(s.days.length / 7);
+            const show = (s.days.length - 1 - i) % every === 0;
+            return (
+              <Text key={d.day} style={styles.xTick}>
+                {show ? fmtShortDay(d.day) : ''}
+              </Text>
+            );
+          })}
+        </View>
+        <Muted style={{ marginTop: 4 }}>Poops per day · pee changes: {s.days.reduce((a, d) => a + d.pee, 0)} in range</Muted>
+      </Card>
+
+      {poopsNewestFirst.length > 0 && (
+        <Card style={{ paddingVertical: 4, marginTop: spacing.sm }}>
+          {poopsNewestFirst.map((p, i) => (
+            <View
+              key={p.id}
+              style={[styles.detailRow, { flexDirection: 'column', alignItems: 'flex-start' }, i > 0 && { borderTopWidth: 1, borderTopColor: colors.border }]}
+            >
+              <Text style={{ color: colors.text, fontFamily: fonts.bold }}>
+                {fmtWhen(p.occurred_at)}
+                <Text style={{ fontFamily: fonts.regular, color: colors.muted }}>
+                  {p.gap_hours != null ? `  · after ${fmtGap(p.gap_hours)}` : ''}
+                </Text>
+              </Text>
+              {p.consistency || p.color || p.note ? (
+                <Muted>
+                  {[p.consistency, p.color, p.note].filter(Boolean).join(' · ')}
+                </Muted>
+              ) : null}
+            </View>
+          ))}
+        </Card>
+      )}
+      <Muted style={{ marginTop: spacing.sm, marginBottom: spacing.md }}>
+        "After" = time since the previous poop. Consistency and color come from what's logged in
+        Huckleberry (or the event here). Ask tab: "how has she been pooping this week?"
+      </Muted>
+    </>
   );
 }
 
@@ -216,6 +338,10 @@ function GrowthSection({ babyId, babyName }: { babyId?: string; babyName: string
     latest && prev && latest.t > prev.t
       ? gToOz(latest.g - prev.g) / ((latest.t - prev.t) / (7 * 86400000))
       : null;
+  const gainGPerDay =
+    latest && prev && latest.t > prev.t
+      ? (latest.g - prev.g) / ((latest.t - prev.t) / 86400000)
+      : null;
 
   return (
     <>
@@ -239,6 +365,14 @@ function GrowthSection({ babyId, babyName }: { babyId?: string; babyName: string
             }
           />
         </View>
+        {latest ? (
+          <Muted style={{ marginTop: 4 }}>
+            {fmtKg(latest.g)}
+            {gainGPerDay != null
+              ? ` · ${gainGPerDay >= 0 ? '+' : '−'}${fmtNum(Math.abs(gainGPerDay), 0)} g/day since the previous weigh-in`
+              : ''}
+          </Muted>
+        ) : null}
         {points.length >= 2 ? (
           <WeightChart points={points} />
         ) : (
@@ -341,7 +475,7 @@ function WeightChart({ points }: { points: { t: number; g: number }[] }) {
                       },
                     ]}
                   >
-                    {fmtLbOz(p.g)}
+                    {fmtKg(p.g)}
                   </Text>
                 )}
               </View>

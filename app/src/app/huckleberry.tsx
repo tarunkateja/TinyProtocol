@@ -8,13 +8,14 @@ import { useBaby, useFoods } from '../lib/hooks';
 import { colors, fonts, spacing } from '../lib/theme';
 import type { HbChild, HbImport, HbSplitPart, HbStatus } from '../lib/types';
 import { Button, Card, Chip, Field, Muted, SectionTitle, Stepper } from '../components/ui';
+import { showAlert } from '../lib/dialogs';
 
 const MAPPED_TYPES = ['Breast Milk', 'Formula', 'Other'] as const;
 
 // react-native-web silently no-ops Alert.alert — surface feedback on web too.
 const notify = (title: string, message?: string) => {
   if (Platform.OS === 'web') window.alert(message ? `${title}\n\n${message}` : title);
-  else Alert.alert(title, message);
+  else showAlert(title, message);
 };
 
 const confirmDialog = (title: string, message: string, action: () => void) => {
@@ -22,7 +23,7 @@ const confirmDialog = (title: string, message: string, action: () => void) => {
     if (window.confirm(`${title}\n\n${message}`)) action();
     return;
   }
-  Alert.alert(title, message, [
+  showAlert(title, message, [
     { text: 'Cancel', style: 'cancel' },
     { text: 'OK', style: 'destructive', onPress: action },
   ]);
@@ -299,7 +300,7 @@ function MappingCard({
 
   const remap = async (
     bottleType: string,
-    target: string | { food_id: string; parts: number }[],
+    target: string | { food_id: string; parts: number }[] | { mode: 'recipe' },
   ) => {
     try {
       await api.hbUpdate(babyId, { mapping: { [bottleType]: target } });
@@ -341,10 +342,16 @@ function MappingCard({
           const entry = status.mapping[bt];
           const draft = drafts[bt];
           const isMix = !!draft || !!entry?.split?.length;
+          const isRecipe = !draft && !!entry?.recipe;
           return (
             <View key={bt} style={{ marginBottom: spacing.md }}>
               <Text style={styles.label}>
                 Huckleberry "{bt}" →
+                {isRecipe
+                  ? ` split by the recipe in effect${
+                      entry?.recipe_summary ? ` (now: ${entry.recipe_summary})` : ' (no recipe yet!)'
+                    }`
+                  : ''}
                 {!draft && entry?.split?.length
                   ? ` mix, ${entry.split
                       .map((p) => `${fmtNum(p.parts)} ${p.food_name ?? ''}`)
@@ -361,6 +368,7 @@ function MappingCard({
                   />
                 ))}
                 <Chip label="Mixed 🍼+⚗️" selected={isMix} onPress={() => startMix(bt)} />
+                <Chip label="Per recipe 🧪" selected={isRecipe} onPress={() => remap(bt, { mode: 'recipe' })} />
               </View>
               {draft ? (
                 <View style={{ marginTop: spacing.sm }}>
@@ -402,8 +410,9 @@ function MappingCard({
           );
         })}
         <Muted>
-          "Other" is treated as your mixed bottle — set the ratio once and every
-          import splits automatically.
+          "Other" is your mixed bottle. "Per recipe" splits each import by the recipe that was in
+          effect at that feed's time (Settings → Recipe), so a plan change is a recipe edit, not a
+          mapping edit. A fixed ratio is only right while the plan never changes.
         </Muted>
       </Card>
     </>

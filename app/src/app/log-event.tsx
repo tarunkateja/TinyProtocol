@@ -1,15 +1,16 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
-import { Alert, ScrollView, Text, View } from 'react-native';
+import { ScrollView, Text, View } from 'react-native';
 
 import { api } from '../lib/api';
-import { fmtNum, gToOz, lbOzToG } from '../lib/format';
+import { fmtNum, gToOz, kgToLbOz, lbOzToG } from '../lib/format';
 import { useBaby, useInvalidateLogs, useMedPresets } from '../lib/hooks';
 import { colors, eventTheme, fonts, spacing } from '../lib/theme';
 import type { DiaperKind, DoseUnit, EventType, PumpSide, Severity } from '../lib/types';
 import { Button, Card, Chip, Field, Muted, SectionTitle, Stepper } from '../components/ui';
 import { SessionTimer } from '../components/SessionTimer';
 import { TimePickerRow } from '../components/TimePickerRow';
+import { showAlert } from '../lib/dialogs';
 
 const TYPES: EventType[] = [
   'pumping',
@@ -26,13 +27,13 @@ const SEVERITIES: Severity[] = ['small', 'medium', 'large'];
 
 export default function LogEvent() {
   const router = useRouter();
-  const { eventId } = useLocalSearchParams<{ eventId?: string }>();
+  const { eventId, type: initialType } = useLocalSearchParams<{ eventId?: string; type?: string }>();
   const editing = !!eventId;
   const { baby } = useBaby();
   const { presets } = useMedPresets();
   const invalidate = useInvalidateLogs();
 
-  const [type, setType] = useState<EventType>('pumping');
+  const [type, setType] = useState<EventType>((initialType as EventType) || 'pumping');
   const [severity, setSeverity] = useState<Severity>('small');
   const [medName, setMedName] = useState('');
   const [dose, setDose] = useState(0);
@@ -69,7 +70,7 @@ export default function LogEvent() {
         }
         if (ev.note) setNote(ev.note);
       })
-      .catch((e) => Alert.alert('Could not load event', e.message));
+      .catch((e) => showAlert('Could not load event', e.message));
   }, [eventId]);
 
   const theme = eventTheme[type] ?? eventTheme.note;
@@ -112,7 +113,7 @@ export default function LogEvent() {
       invalidate();
       router.back();
     } catch (e: any) {
-      Alert.alert('Could not save event', e.message);
+      showAlert('Could not save event', e.message);
       setBusy(false);
     }
   };
@@ -192,7 +193,7 @@ export default function LogEvent() {
 
       {type === 'weight' && (
         <Card>
-          <Text style={styles_label}>Weight</Text>
+          <Text style={styles_label}>Weight — enter in either unit</Text>
           <View style={{ flexDirection: 'row', gap: spacing.md }}>
             <View style={{ flex: 1 }}>
               <Muted style={{ marginBottom: 4 }}>pounds</Muted>
@@ -203,10 +204,20 @@ export default function LogEvent() {
               <Stepper value={weightOz} onChange={setWeightOz} step={0.5} suffix="oz" />
             </View>
           </View>
+          <Muted style={{ marginBottom: 4, marginTop: spacing.sm }}>kilograms (what the clinic asks for)</Muted>
+          <Stepper
+            value={Math.round(lbOzToG(weightLb, weightOz) / 10) / 100}
+            onChange={(kg) => {
+              const { lb, oz } = kgToLbOz(Math.max(0, kg));
+              setWeightLb(lb);
+              setWeightOz(oz);
+            }}
+            step={0.01}
+            suffix="kg"
+          />
           <Muted style={{ marginTop: spacing.xs }}>
-            {weightLb > 0 || weightOz > 0
-              ? `= ${fmtNum(lbOzToG(weightLb, weightOz) / 1000, 2)} kg — updates the per-kg lysine/protein targets automatically.`
-              : 'Updates the per-kg lysine/protein targets automatically.'}
+            Stored in grams; lb/oz and kg always show together. Updates the per-kg lysine/protein
+            targets automatically.
           </Muted>
         </Card>
       )}

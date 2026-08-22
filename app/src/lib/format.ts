@@ -78,6 +78,29 @@ export function fmtLbOz(g: number): string {
   return oz > 0 ? `${lb} lb ${fmtNum(oz)} oz` : `${lb} lb`;
 }
 
+/** Grams → "3.75 kg" (the metabolic team doses and weighs in kg). */
+export function fmtKg(g: number): string {
+  return `${fmtNum(g / 1000, 2)} kg`;
+}
+
+/** Both units, lb/oz first (how the parents read it) then kg (how the clinic
+ * reads it): "8 lb 4.4 oz · 3.75 kg". */
+export function fmtWeight(g: number): string {
+  return `${fmtLbOz(g)} · ${fmtKg(g)}`;
+}
+
+/** kg → (lb, oz) for the two-way entry steppers. */
+export function kgToLbOz(kg: number): { lb: number; oz: number } {
+  const totalOz = (kg * 1000) / G_PER_OZ;
+  let lb = Math.floor(totalOz / 16);
+  let oz = Math.round((totalOz - lb * 16) * 10) / 10;
+  if (oz >= 16) {
+    lb += 1;
+    oz = 0;
+  }
+  return { lb: Math.max(0, lb), oz: Math.max(0, oz) };
+}
+
 export function lbOzToG(lb: number, oz: number): number {
   return Math.round((lb * 16 + oz) * G_PER_OZ);
 }

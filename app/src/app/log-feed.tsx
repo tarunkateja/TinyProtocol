@@ -12,6 +12,7 @@ import type { FeedComponentIn, FeedPreset, Food } from '../lib/types';
 import { Button, Card, Chip, Field, Muted, SectionTitle, Stepper } from '../components/ui';
 import { SessionTimer } from '../components/SessionTimer';
 import { TimePickerRow } from '../components/TimePickerRow';
+import { showAlert } from '../lib/dialogs';
 
 type Mode = 'bottle' | 'latch';
 type BottleMode = 'breast_milk' | 'formula' | 'ga1' | 'mixed' | 'custom';
@@ -28,6 +29,11 @@ export default function LogFeed() {
   const { foods } = useFoods();
   const invalidate = useInvalidateLogs();
   const presetsQ = useQuery({ queryKey: ['feedPresets'], queryFn: api.listFeedPresets });
+  const recipeQ = useQuery({
+    queryKey: ['recipe-current', baby?.id],
+    queryFn: () => api.currentRecipe(baby!.id),
+    enabled: !!baby && !feedId,
+  });
 
   const [mode, setMode] = useState<Mode>('bottle');
   const [bottleMode, setBottleMode] = useState<BottleMode>('mixed');
@@ -57,6 +63,16 @@ export default function LogFeed() {
       setMixTotal(r.bm + r.ga1); // full bottle by default
     });
   }, []);
+
+  // The family's current recipe (Settings → Recipe) wins over the phone-local
+  // default once it loads — both parents then log the same bottle.
+  useEffect(() => {
+    const cur = recipeQ.data;
+    if (feedId || !cur || cur.breast_milk_ml + cur.batch_ml <= 0) return;
+    const r = { bm: cur.breast_milk_ml, ga1: cur.batch_ml };
+    setRecipe(r);
+    setMixTotal(r.bm + r.ga1);
+  }, [recipeQ.data?.id]);
 
   // Editing: load the feed and prefill everything.
   useEffect(() => {
@@ -108,7 +124,7 @@ export default function LogFeed() {
           }
         }
       })
-      .catch((e) => Alert.alert('Could not load feed', e.message));
+      .catch((e) => showAlert('Could not load feed', e.message));
   }, [feedId]);
 
   const saveRecipe = (r: { bm: number; ga1: number }) => {
@@ -229,7 +245,7 @@ export default function LogFeed() {
           await api.createFeedPreset({ name: name?.trim() || defaultName, components: comps });
           qc.invalidateQueries({ queryKey: ['feedPresets'] });
         } catch (e: any) {
-          Alert.alert('Could not save preset', e.message);
+          showAlert('Could not save preset', e.message);
         }
       },
       'plain-text',
@@ -238,7 +254,7 @@ export default function LogFeed() {
   };
 
   const deletePreset = (preset: FeedPreset) => {
-    Alert.alert(`Delete preset "${preset.name}"?`, undefined, [
+    showAlert(`Delete preset "${preset.name}"?`, undefined, [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Delete',
@@ -271,7 +287,7 @@ export default function LogFeed() {
       invalidate();
       router.back();
     } catch (e: any) {
-      Alert.alert('Could not save feed', e.message);
+      showAlert('Could not save feed', e.message);
       setBusy(false);
     }
   };

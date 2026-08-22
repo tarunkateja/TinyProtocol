@@ -129,6 +129,8 @@ export interface CareEvent {
   side?: PumpSide | null;
   duration_minutes?: number | null;
   diaper_kind?: DiaperKind | null;
+  diaper_color?: string | null;
+  diaper_consistency?: string | null;
   weight_g?: number | null;
   note?: string | null;
 }
@@ -225,6 +227,36 @@ export interface DailyIntakeDay {
   formula_ml: number;
   metabolic_formula_ml: number;
   other_ml: number;
+}
+
+export interface DiaperDay {
+  day: string;
+  changes: number;
+  pee: number;
+  poop: number;
+}
+
+export interface PoopEvent {
+  id: string;
+  occurred_at: string;
+  diaper_kind: DiaperKind;
+  color?: string | null;
+  consistency?: string | null;
+  note?: string | null;
+  gap_hours?: number | null; // since the previous poop
+}
+
+export interface DiaperSeries {
+  baby_id: string;
+  from_day: string;
+  to_day: string;
+  days: DiaperDay[];
+  poops: PoopEvent[];
+  last_poop_at?: string | null;
+  hours_since_last_poop?: number | null;
+  longest_gap_hours?: number | null;
+  longest_gap_ended_at?: string | null;
+  avg_gap_hours?: number | null;
 }
 
 export interface DailyIntakeSeries {
@@ -373,6 +405,9 @@ export interface HbMappingEntry {
   food_id?: string | null;
   food_name?: string | null;
   split?: HbSplitPart[] | null;
+  // Mixed bottle split by the recipe in effect at the feed's time.
+  recipe?: boolean;
+  recipe_summary?: string | null;
 }
 
 export interface HbStatus {
@@ -421,4 +456,51 @@ export interface HbSyncResult {
   auto_imported: number;
   updated: number;
   deleted_upstream: number;
+}
+
+// --------------------------------------------------------------------------- //
+// Feeding recipes (effective-dated plan history)
+// --------------------------------------------------------------------------- //
+export interface RecipePowder {
+  name: string;
+  grams: number;
+  food_id?: string | null;
+}
+
+export interface RecipeIn {
+  label: string;
+  effective_at: string; // ISO datetime
+  breast_milk_ml: number;
+  batch_ml: number;
+  powders: RecipePowder[];
+  batch_final_volume_ml?: number | null;
+  feeds_per_day?: number | null;
+  breast_milk_food_id?: string | null;
+  batch_food_id?: string | null;
+  source?: string | null;
+  notes?: string | null;
+}
+
+export interface Recipe extends RecipeIn {
+  id: string;
+  created_at: string;
+  prepared_ml: number;
+  feeds_per_batch?: number | null;
+}
+
+export interface ResplitChange {
+  feed_id: string;
+  occurred_at: string;
+  total_ml: number;
+  recipe_label: string;
+  before: Record<string, number>;
+  after: Record<string, number>;
+}
+
+export interface ResplitResult {
+  applied: boolean;
+  changes: ResplitChange[];
+  unchanged: number;
+  skipped_no_recipe: number;
+  skipped_unlinked: number;
 }
