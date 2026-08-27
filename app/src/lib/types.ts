@@ -504,3 +504,50 @@ export interface ResplitResult {
   skipped_no_recipe: number;
   skipped_unlinked: number;
 }
+
+// --------------------------------------------------------------------------- //
+// MyChart (Epic patient FHIR) sync
+// --------------------------------------------------------------------------- //
+export type McImportKind = 'lab' | 'doc' | 'message';
+export type McImportStatus = 'pending' | 'imported' | 'dismissed';
+
+export interface McStatus {
+  connected: boolean;
+  configured: boolean;
+  fhir_base?: string | null;
+  scopes?: string | null;
+  last_synced_at?: string | null;
+  status?: string | null;
+  last_error?: string | null;
+  pending_labs: number;
+  pending_docs: number;
+  pending_messages: number;
+  messages_available?: boolean | null;
+}
+
+export interface McImport {
+  baby_id: string;
+  mc_key: string;
+  kind: McImportKind;
+  status: McImportStatus;
+  analyte?: string | null;
+  value?: number | null;
+  unit?: string | null;
+  value_text?: string | null;
+  reference_range?: string | null;
+  collected_date?: string | null;
+  title?: string | null;
+  doc_date?: string | null;
+  content_type?: string | null;
+  sender?: string | null;
+  sent_at?: string | null;
+  text?: string | null;
+}
+
+export interface McSyncResult {
+  labs_found: number;
+  docs_found: number;
+  messages_found: number;
+  new_pending: number;
+  messages_available?: boolean | null;
+}

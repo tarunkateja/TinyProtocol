@@ -13,7 +13,7 @@ region = "us-east-1"
 capabilities = "CAPABILITY_IAM"
 confirm_changeset = false
 fail_on_empty_changeset = false
-parameter_overrides = "Stage=\"dev\""
+parameter_overrides = "Stage=\"dev\" MyChartRedirectUrl=\"https://z7yrwag4b4.execute-api.us-east-1.amazonaws.com/v1/mychart/callback\" MyChartClientId=\"911ad789-df80-4f2b-a8cb-a8d98a0f548c\""
 
 [prod.deploy.parameters]
 stack_name = "tinyprotocol-prod"

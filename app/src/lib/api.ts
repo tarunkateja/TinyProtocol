@@ -29,6 +29,9 @@ import type {
   TimelineEntry,
   TokenResponse,
   WeightSeries,
+  McImport,
+  McStatus,
+  McSyncResult,
   Recipe,
   RecipeIn,
   ResplitResult,
@@ -225,6 +228,24 @@ export const api = {
         toIso,
       )}&apply=${apply}`,
     ),
+
+  // MyChart (Epic) sync
+  mcStatus: (babyId: string) => get<McStatus>(`/babies/${babyId}/mychart`),
+  mcConnectUrl: (babyId: string) => post<{ url: string }>(`/babies/${babyId}/mychart/connect-url`),
+  mcDisconnect: (babyId: string) => del<void>(`/babies/${babyId}/mychart`),
+  mcSyncNow: (babyId: string) => post<McSyncResult>(`/babies/${babyId}/mychart/sync`),
+  mcImports: (babyId: string, status?: string) =>
+    get<{ items: McImport[] }>(
+      `/babies/${babyId}/mychart/imports${status ? `?status=${status}` : ''}`,
+    ),
+  mcConfirm: (
+    babyId: string,
+    mcKey: string,
+    body: { analyte?: string; unit?: string; collected_date?: string } = {},
+  ) =>
+    post<any>(`/babies/${babyId}/mychart/imports/${encodeURIComponent(mcKey)}/confirm`, body),
+  mcDismiss: (babyId: string, mcKey: string) =>
+    post<void>(`/babies/${babyId}/mychart/imports/${encodeURIComponent(mcKey)}/dismiss`),
 
   // Huckleberry sync
   hbStatus: (babyId: string) => get<HbStatus>(`/babies/${babyId}/huckleberry`),

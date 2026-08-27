@@ -14,6 +14,8 @@ from app.routers import (
     feeds,
     foods,
     huckleberry,
+    legal,
+    mychart,
     presets,
     recipes,
     summary,
@@ -35,7 +37,7 @@ app.add_middleware(
 
 for module in (
     auth, family, babies, foods, feeds, events, timeline, summary, assistant,
-    presets, care, docs, huckleberry, recipes,
+    presets, care, docs, huckleberry, recipes, mychart, legal,
 ):
     app.include_router(module.router, prefix="/v1")
 

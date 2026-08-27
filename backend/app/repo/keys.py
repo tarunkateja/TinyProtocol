@@ -129,3 +129,19 @@ def gsi1_invite_pk(code: str) -> str:
 def recipe_sk(baby_id: str, effective_at: datetime) -> str:
     # Effective time last so a per-baby prefix query returns chronological order.
     return f"RECIPE#{baby_id}#{iso_z(effective_at)}"
+
+
+def mychart_sk(baby_id: str) -> str:
+    """Per-baby MyChart (Epic FHIR) connection: tokens, patient id, endpoints."""
+    return f"MYCHART#{baby_id}"
+
+
+def mc_import_sk(baby_id: str, mc_key: str) -> str:
+    """One MyChart import row; mc_key is '<kind>:<fhir id>' so re-syncs are
+    idempotent."""
+    return f"MCIMPORT#{baby_id}#{mc_key}"
+
+
+def mc_auth_sk(state: str) -> str:
+    """Pending OAuth handshake (PKCE verifier), keyed by the state nonce."""
+    return f"MCAUTH#{state}"

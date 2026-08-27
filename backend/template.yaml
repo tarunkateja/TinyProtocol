@@ -11,6 +11,14 @@ Parameters:
     Type: String
     NoEcho: true
     MinLength: 32
+  MyChartClientId:
+    Type: String
+    Default: ""
+    Description: Epic on FHIR patient-app client id (empty = MyChart sync disabled).
+  MyChartRedirectUrl:
+    Type: String
+    Default: ""
+    Description: Public OAuth callback, https://<api>/v1/mychart/callback
   OpenAiApiKey:
     Type: String
     NoEcho: true
@@ -109,6 +117,8 @@ Resources:
         Variables:
           TABLE_NAME: !Ref Table
           JWT_SECRET: !Ref JwtSecret
+          MYCHART_CLIENT_ID: !Ref MyChartClientId
+          MYCHART_REDIRECT_URL: !Ref MyChartRedirectUrl
           STAGE: !Ref Stage
       Policies:
         - DynamoDBCrudPolicy:
@@ -131,6 +141,8 @@ Resources:
           TABLE_NAME: !Ref Table
           JWT_SECRET: !Ref JwtSecret
           OPENAI_API_KEY: !Ref OpenAiApiKey
+          MYCHART_CLIENT_ID: !Ref MyChartClientId
+          MYCHART_REDIRECT_URL: !Ref MyChartRedirectUrl
           DOCS_BUCKET: !Ref DocsBucket
           WORKER_FUNCTION_NAME: !Ref WorkerFunction
           STAGE: !Ref Stage

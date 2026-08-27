@@ -74,6 +74,11 @@ export default function Plan() {
     queryFn: () => api.targetHistory(baby!.id),
     enabled: !!baby,
   });
+  const mcQ = useQuery({
+    queryKey: ['mc-status', baby?.id],
+    queryFn: () => api.mcStatus(baby!.id),
+    enabled: !!baby,
+  });
 
   const [editingGoals, setEditingGoals] = useState(false);
   const [lysineTarget, setLysineTarget] = useState(0);
@@ -294,6 +299,19 @@ export default function Plan() {
                 : `${hbQ.data.pending_count > 0 ? `${hbQ.data.pending_count} to review · ` : ''}"Other" bottles ${
                     hbOther?.recipe ? 'split by recipe' : 'use a fixed ratio'
                   }`}
+            </Muted>
+          </View>
+          <Text style={styles.chev}>›</Text>
+        </Pressable>
+        <Pressable style={[styles.row, styles.rowBorder]} onPress={() => router.push('/mychart')}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.rowTitle}>🏥 MyChart (labs & documents)</Text>
+            <Muted>
+              {!mcQ.data?.configured
+                ? 'Needs one-time Epic setup'
+                : mcQ.data?.connected
+                  ? `Connected${(mcQ.data.pending_labs + mcQ.data.pending_docs + mcQ.data.pending_messages) > 0 ? ` · ${mcQ.data.pending_labs + mcQ.data.pending_docs + mcQ.data.pending_messages} to review` : ''}`
+                  : 'Not connected'}
             </Muted>
           </View>
           <Text style={styles.chev}>›</Text>
