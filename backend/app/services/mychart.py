@@ -136,16 +136,16 @@ async def complete_auth(full_state: str, code: str) -> str:
         raise MyChartError("Sign-in attempt expired — try Connect again")
 
     _, token_url = _endpoints(settings.mychart_fhir_base)
-    body = await token_request(
-        token_url,
-        {
-            "grant_type": "authorization_code",
-            "code": code,
-            "redirect_uri": settings.mychart_redirect_url,
-            "client_id": settings.mychart_client_id,
-            "code_verifier": pending["verifier"],
-        },
-    )
+    token_data = {
+        "grant_type": "authorization_code",
+        "code": code,
+        "redirect_uri": settings.mychart_redirect_url,
+        "client_id": settings.mychart_client_id,
+        "code_verifier": pending["verifier"],
+    }
+    if settings.mychart_client_secret:
+        token_data["client_secret"] = settings.mychart_client_secret
+    body = await token_request(token_url, token_data)
     baby_id = pending["baby_id"]
     expires_in = int(body.get("expires_in") or 300)
     conn = {
@@ -185,14 +185,14 @@ async def _access_token(family_id: str, baby_id: str, conn: dict) -> str:
         raise MyChartAuthError("Access expired and no refresh token — reconnect")
     _, token_url = _endpoints(conn.get("fhir_base") or settings.mychart_fhir_base)
     try:
-        body = await token_request(
-            token_url,
-            {
-                "grant_type": "refresh_token",
-                "refresh_token": conn["refresh_token"],
-                "client_id": settings.mychart_client_id,
-            },
-        )
+        refresh_data = {
+            "grant_type": "refresh_token",
+            "refresh_token": conn["refresh_token"],
+            "client_id": settings.mychart_client_id,
+        }
+        if settings.mychart_client_secret:
+            refresh_data["client_secret"] = settings.mychart_client_secret
+        body = await token_request(token_url, refresh_data)
     except MyChartAuthError:
         family_items.update_fields(
             family_id, keys.mychart_sk(baby_id),

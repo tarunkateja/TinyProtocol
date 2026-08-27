@@ -25,6 +25,9 @@ class Settings(BaseSettings):
     # MyChart (Epic patient-access FHIR). Endpoints stay 503 until the Epic
     # client id (from fhir.epic.com app registration) is configured.
     mychart_client_id: str = ""
+    # Per-organization client secret from Epic's "Manage keys" (confidential
+    # client) — empty for public clients. With it, Epic issues refresh tokens.
+    mychart_client_secret: str = ""
     mychart_redirect_url: str = ""  # https://<api>/v1/mychart/callback
     mychart_fhir_base: str = "https://epicmobile.luriechildrens.org/Interconnect-FHIRPRD/api/FHIR/R4/"
     # USCDI-only scopes: adding non-USCDI APIs (e.g. Communication for MyChart

@@ -187,6 +187,14 @@ def test_refresh_token_rotation(auth_client, fake_epic):
     assert conn["access_token"] == "at-2" and conn["refresh_token"] == "rt-2"
 
 
+def test_client_secret_sent_when_configured(auth_client, fake_epic, monkeypatch):
+    monkeypatch.setattr(settings, "mychart_client_secret", "sekret-1")
+    c = auth_client
+    _connect(c, c.baby_id)
+    url, data = fake_epic["token"][-1]
+    assert data["client_secret"] == "sekret-1" and data["code_verifier"]
+
+
 def test_unconfigured_returns_503(auth_client, monkeypatch):
     monkeypatch.setattr(settings, "mychart_client_id", "")
     resp = auth_client.post(f"/v1/babies/{auth_client.baby_id}/mychart/connect-url")

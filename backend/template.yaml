@@ -15,6 +15,11 @@ Parameters:
     Type: String
     Default: ""
     Description: Epic on FHIR patient-app client id (empty = MyChart sync disabled).
+  MyChartClientSecret:
+    Type: String
+    Default: ""
+    NoEcho: true
+    Description: Epic per-org client secret (enables refresh tokens; empty = public client).
   MyChartRedirectUrl:
     Type: String
     Default: ""
@@ -118,6 +123,7 @@ Resources:
           TABLE_NAME: !Ref Table
           JWT_SECRET: !Ref JwtSecret
           MYCHART_CLIENT_ID: !Ref MyChartClientId
+          MYCHART_CLIENT_SECRET: !Ref MyChartClientSecret
           MYCHART_REDIRECT_URL: !Ref MyChartRedirectUrl
           STAGE: !Ref Stage
       Policies:
@@ -142,6 +148,7 @@ Resources:
           JWT_SECRET: !Ref JwtSecret
           OPENAI_API_KEY: !Ref OpenAiApiKey
           MYCHART_CLIENT_ID: !Ref MyChartClientId
+          MYCHART_CLIENT_SECRET: !Ref MyChartClientSecret
           MYCHART_REDIRECT_URL: !Ref MyChartRedirectUrl
           DOCS_BUCKET: !Ref DocsBucket
           WORKER_FUNCTION_NAME: !Ref WorkerFunction
