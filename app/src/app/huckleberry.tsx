@@ -410,9 +410,11 @@ function MappingCard({
           );
         })}
         <Muted>
-          "Other" is your mixed bottle. "Per recipe" splits each import by the recipe that was in
-          effect at that feed's time (Settings → Recipe), so a plan change is a recipe edit, not a
-          mapping edit. A fixed ratio is only right while the plan never changes.
+          "Other" is your mixed bottle and "Formula" a top-up. "Per recipe" resolves each import
+          by the recipe that was in effect at that feed's time (Settings → Recipe): "Other" splits
+          into breast milk + batch, "Formula" becomes that recipe's top-up food. A plan change is
+          then a recipe edit, not a mapping edit. A fixed ratio is only right while the plan never
+          changes.
         </Muted>
       </Card>
     </>

@@ -22,10 +22,10 @@ MAX_RESPLIT_DAYS = 62
 
 def _check_foods(user: CurrentUser, body) -> None:
     foods = get_foods_map(user.family_id)
-    for fid in (body.breast_milk_food_id, body.batch_food_id):
+    for fid in (body.breast_milk_food_id, body.batch_food_id, body.topoff_food_id):
         if fid and (fid not in foods or foods[fid].unit_basis != "per_100ml"):
             raise HTTPException(422, f"{fid} is not a liquid food")
-    for p in body.powders or []:
+    for p in (body.powders or []) + (body.topoff_powders or []):
         if p.food_id and p.food_id not in foods:
             raise HTTPException(422, f"{p.food_id} is not a food")
 
@@ -98,8 +98,9 @@ def resplit(
     apply: bool = Query(False),
     user: CurrentUser = Depends(get_current_user),
 ):
-    """Re-apply the recipe in effect to imported Huckleberry mixed bottles in
-    a window. Totals never change — only the breast milk / batch split.
+    """Re-apply the recipe in effect to imported Huckleberry bottles of every
+    recipe-mapped type in a window: mixed bottles get the breast milk / batch
+    split, top-ups get the recipe's top-up food. Totals never change.
     Preview by default; apply=true writes. Feeds the parent edited by hand
     (hb link broken) are never touched."""
     baby = get_baby_or_404(user, baby_id)
@@ -114,9 +115,9 @@ def resplit(
         raise HTTPException(
             422, "No Huckleberry bottle type is mapped to 'per recipe' yet"
         )
-    bm_default, batch_default = hb.mapping_defaults(mapping)
     recipes = svc.list_recipes(user.family_id, baby.id)
     foods = get_foods_map(user.family_id)
+    bm_default, batch_default = hb.recipe_food_defaults(mapping, foods)
     imports = {
         i.hb_key: i
         for i in hb.list_imports(user.family_id, baby.id, status="imported")
@@ -144,7 +145,10 @@ def resplit(
             continue
         total = round(sum(c.volume_ml for c in feed.components), 1)
         try:
-            new_components = svc.mixed_components(recipe, total, bm_default, batch_default)
+            if imp.bottle_type == "Other":
+                new_components = svc.mixed_components(recipe, total, bm_default, batch_default)
+            else:
+                new_components = svc.topoff_components(recipe, total, batch_default)
             comps, totals = compute_components(new_components, foods)
         except (ValueError, NutritionError) as e:
             raise HTTPException(422, str(e))

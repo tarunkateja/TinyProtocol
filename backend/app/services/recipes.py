@@ -33,7 +33,7 @@ def get_recipe(family_id: str, baby_id: str, recipe_id: str) -> Optional[Recipe]
 
 
 def _store(family_id: str, baby_id: str, recipe: Recipe) -> None:
-    data = recipe.model_dump(mode="json", exclude={"prepared_ml", "feeds_per_batch"})
+    data = recipe.model_dump(mode="json", exclude=Recipe.COMPUTED)
     data["item_type"] = "RECIPE"
     data["baby_id"] = baby_id
     family_items.put(family_id, keys.recipe_sk(baby_id, recipe.effective_at), data)
@@ -49,7 +49,7 @@ def update_recipe(
     family_id: str, baby_id: str, existing: Recipe, body: RecipeUpdate
 ) -> Recipe:
     merged = RecipeIn.model_validate(
-        {**existing.model_dump(exclude={"id", "created_at", "prepared_ml", "feeds_per_batch"}),
+        {**existing.model_dump(exclude={"id", "created_at", *Recipe.COMPUTED}),
          **body.model_dump(exclude_unset=True)}
     )
     updated = Recipe(id=existing.id, created_at=existing.created_at, **merged.model_dump())
@@ -120,12 +120,38 @@ def mixed_components(
     return comps
 
 
+def topoff_components(
+    recipe: Recipe, volume_ml: float, batch_food_id: Optional[str]
+) -> list[LiquidComponent]:
+    """Feed components for a standalone top-up bottle of `volume_ml` under
+    `recipe`: the recipe's own top-up food, else its batch food, else the
+    caller's default."""
+    food = recipe.topoff_food_id or recipe.batch_food_id or batch_food_id
+    if not food:
+        raise ValueError("No formula food to log the top-up as")
+    return [LiquidComponent(kind="liquid", food_id=food, volume_ml=_round1(volume_ml))]
+
+
+def describe_topoff(recipe: Recipe) -> Optional[str]:
+    """'9 g Pro-Phree + 60 ml water' — None when top-ups are just more batch."""
+    if not recipe.topoff_powders and not recipe.topoff_water_ml:
+        return None
+    parts = [f"{p.grams:g} g {p.name}" for p in recipe.topoff_powders]
+    if recipe.topoff_water_ml:
+        parts.append(f"{recipe.topoff_water_ml:g} ml water")
+    return " + ".join(parts)
+
+
 def describe(recipe: Recipe) -> str:
-    """One line for UI/assistant: '55 + 30 = 85 ml/feed · 30 g Anamix + 20 g Pro-Phree → 280 ml'."""
-    bottle = f"{recipe.breast_milk_ml:g} bm + {recipe.batch_ml:g} batch = {recipe.prepared_ml:g} ml/feed"
+    """One line for UI/assistant: '55 + 30 = 85 ml/feed · 30 g Anamix + 20 g
+    Pro-Phree → 280 ml · top-ups: 9 g Pro-Phree + 60 ml water'."""
+    line = f"{recipe.breast_milk_ml:g} bm + {recipe.batch_ml:g} batch = {recipe.prepared_ml:g} ml/feed"
     if recipe.powders:
         powders = " + ".join(f"{p.grams:g} g {p.name}" for p in recipe.powders)
         if recipe.batch_final_volume_ml:
             powders += f" → {recipe.batch_final_volume_ml:g} ml"
-        return f"{bottle} · {powders}"
-    return bottle
+        line += f" · {powders}"
+    topoff = describe_topoff(recipe)
+    if topoff:
+        line += f" · top-ups: {topoff}"
+    return line

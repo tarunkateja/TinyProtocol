@@ -477,6 +477,10 @@ export interface RecipeIn {
   feeds_per_day?: number | null;
   breast_milk_food_id?: string | null;
   batch_food_id?: string | null;
+  // Top-ups (a standalone "Formula" bottle in Huckleberry). Empty = more batch.
+  topoff_powders?: RecipePowder[];
+  topoff_water_ml?: number | null;
+  topoff_food_id?: string | null;
   source?: string | null;
   notes?: string | null;
 }
@@ -486,6 +490,7 @@ export interface Recipe extends RecipeIn {
   created_at: string;
   prepared_ml: number;
   feeds_per_batch?: number | null;
+  has_own_topoff: boolean;
 }
 
 export interface ResplitChange {

@@ -265,3 +265,90 @@ def test_assistant_recipe_history_tool(auth_client):
     assert out["recipes"][0]["source"] == "Madison via MyChart"
     assert out["current"]["per_feed"] == {"breast_milk_ml": 55, "batch_formula_ml": 30, "prepared_ml": 85}
     assert out["current"]["batch"]["feeds_per_batch"] == 10.3
+
+
+# --------------------------------------------------------------------------- #
+# Top-ups: a standalone "Formula" bottle logged as whatever the recipe says
+# --------------------------------------------------------------------------- #
+def test_describe_and_topoff_components():
+    plain = _recipe()
+    assert svc.describe_topoff(plain) is None
+    assert plain.has_own_topoff is False
+    assert svc.topoff_components(plain, 15, "batch-food")[0].food_id == "batch-food"
+    with pytest.raises(ValueError):
+        svc.topoff_components(plain, 15, None)
+
+    pp = _recipe(
+        batch_ml=35,
+        powders=[{"name": "Anamix", "grams": 30}, {"name": "Pro-Phree", "grams": 20}],
+        batch_final_volume_ml=280,
+        topoff_powders=[{"name": "Pro-Phree", "grams": 9}],
+        topoff_water_ml=60,
+        topoff_food_id="pp-food",
+    )
+    assert pp.has_own_topoff is True
+    assert svc.describe_topoff(pp) == "9 g Pro-Phree + 60 ml water"
+    assert svc.describe(pp) == (
+        "55 bm + 35 batch = 90 ml/feed · 30 g Anamix + 20 g Pro-Phree → 280 ml"
+        " · top-ups: 9 g Pro-Phree + 60 ml water"
+    )
+    comp = svc.topoff_components(pp, 15, "batch-food")
+    assert [(c.food_id, c.volume_ml) for c in comp] == [("pp-food", 15)]
+
+
+def test_formula_per_recipe_uses_the_recipes_topoff_food(hb_client):
+    c = hb_client
+    now = datetime.now(timezone.utc)
+    pp = c.post("/v1/foods", json={
+        "name": "Pro-Phree top-up (prepared)", "category": "metabolic_formula",
+        "unit_basis": "per_100ml", "natural_protein_g_per_unit": 0, "lysine_mg_per_unit": 0,
+    }).json()
+    # Old plan: top-ups are more batch. New plan (30h ago): Pro-Phree top-ups.
+    _post_recipe(c, label="85s", effective_at=(now - timedelta(days=30)).isoformat(), batch_ml=30)
+    _post_recipe(
+        c, label="90s", effective_at=(now - timedelta(hours=30)).isoformat(), batch_ml=35,
+        topoff_powders=[{"name": "Pro-Phree", "grams": 9}], topoff_water_ml=60,
+        topoff_food_id=pp["id"],
+    )
+    # "Formula" mapped to a fixed food first, so the old-era import lands on the batch.
+    c.patch(f"/v1/babies/{c.baby_id}/huckleberry", json={"auto_import": True})
+    c.hb_events.append(_bottle("old-top", 40, bottle_type="Formula", amount_ml=25.0))
+    assert _sync(c)["auto_imported"] == 1
+
+    # Both bottle types per recipe: no plain "Formula" food id is left in the
+    # mapping, so the batch default comes from the catalog.
+    resp = c.patch(f"/v1/babies/{c.baby_id}/huckleberry", json={
+        "mapping": {"Other": {"mode": "recipe"}, "Formula": {"mode": "recipe"}},
+    })
+    assert resp.status_code == 200, resp.text
+    assert "top-ups: 9 g Pro-Phree + 60 ml water" in resp.json()["mapping"]["Formula"]["recipe_summary"]
+    c.hb_events.extend([
+        _bottle("mix", 5, bottle_type="Other", amount_ml=90.0),
+        _bottle("top", 4, bottle_type="Formula", amount_ml=15.0),
+        _bottle("old-mix", 35, bottle_type="Other", amount_ml=85.0),
+    ])
+    assert _sync(c)["auto_imported"] == 3
+    by_key = {i["hb_key"]: i for i in _imports(c, "imported")}
+    assert _feed_split(c, by_key["mix"]["feed_id"]) == {
+        "Breast milk": 55, "GA1 metabolic formula (prepared)": 35,
+    }
+    assert _feed_split(c, by_key["top"]["feed_id"]) == {"Pro-Phree top-up (prepared)": 15}
+    assert _feed_split(c, by_key["old-mix"]["feed_id"]) == {
+        "Breast milk": 55, "GA1 metabolic formula (prepared)": 30,
+    }
+    assert _feed_split(c, by_key["old-top"]["feed_id"]) == {"GA1 metabolic formula (prepared)": 25}
+
+    # Re-split moves nothing in the old era, and a top-up imported under the
+    # fixed mapping in the new era would be corrected. Simulate that by
+    # pointing the old top-up at the new era.
+    params = {"from": (now - timedelta(days=45)).isoformat(), "to": (now + timedelta(hours=1)).isoformat()}
+    preview = c.post(f"/v1/babies/{c.baby_id}/recipes/resplit", params=params).json()
+    assert preview["changes"] == [] and preview["unchanged"] == 4
+
+    from tests.test_huckleberry import _utc
+
+    ev = next(e for e in c.hb_events if e["hb_key"] == "old-top")
+    ev["occurred_at"] = _utc(3)
+    ev["last_updated"] = 2000.0
+    assert _sync(c)["updated"] == 1  # upstream time edit re-resolves per recipe
+    assert _feed_split(c, by_key["old-top"]["feed_id"]) == {"Pro-Phree top-up (prepared)": 25}

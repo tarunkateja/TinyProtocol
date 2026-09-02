@@ -103,8 +103,9 @@ TOOLS = [
                 "Get the family's feeding recipe history: for each plan the "
                 "metabolic team ordered, when it took effect, the prepared bottle "
                 "(breast milk ml + batch formula ml per feed), the batch recipe "
-                "(powder grams, water to final volume), feeds per day, who ordered "
-                "it and notes. Call this for 'what is/was the recipe', 'when did "
+                "(powder grams, water to final volume), what top-ups are made of, "
+                "feeds per day, who ordered it and notes. Call this for 'what is/was "
+                "the recipe', 'what are top-ups', 'when did "
                 "the plan change', batch yield questions, or when a clinic update "
                 "should state the current plan."
             ),
@@ -408,6 +409,15 @@ def _run_tool(
                     "final_volume_ml": r.batch_final_volume_ml,
                     "feeds_per_batch": r.feeds_per_batch,
                 },
+                "top_ups": (
+                    {
+                        "powders": [{"name": p.name, "grams": p.grams} for p in r.topoff_powders],
+                        "water_ml": r.topoff_water_ml,
+                        "description": recipe_svc.describe_topoff(r),
+                    }
+                    if r.has_own_topoff
+                    else "more of the batch formula"
+                ),
                 "feeds_per_day": r.feeds_per_day,
                 "source": r.source,
                 "notes": r.notes,

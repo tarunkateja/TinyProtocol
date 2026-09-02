@@ -377,6 +377,24 @@ def mapping_defaults(mapping: dict) -> tuple[Optional[str], Optional[str]]:
     )
 
 
+def recipe_food_defaults(
+    mapping: dict, foods: Optional[dict[str, Food]] = None
+) -> tuple[Optional[str], Optional[str]]:
+    """mapping_defaults, then the catalog: once "Formula" itself is mapped
+    per recipe there is no plain food id in the mapping, so fall back to the
+    family's breast milk / metabolic formula liquids (as default_mapping does)."""
+    bm, formula = mapping_defaults(mapping)
+    if foods and (bm is None or formula is None):
+        liquids = [f for f in foods.values() if f.unit_basis == "per_100ml" and not f.archived]
+
+        def first_of(category: str) -> Optional[str]:
+            return next((f.id for f in liquids if f.category == category), None)
+
+        bm = bm or first_of("breast_milk")
+        formula = formula or first_of("metabolic_formula") or first_of("formula")
+    return bm, formula
+
+
 def load_recipes(family_id: str, baby_id: str) -> list:
     return recipe_svc.list_recipes(family_id, baby_id)
 
@@ -392,12 +410,14 @@ def _build_components(
     measured_ml: Optional[float] = None,
     volume_override: Optional[float] = None,
     recipes: Optional[list] = None,
+    foods: Optional[dict[str, Food]] = None,
 ):
     if imp["mode"] == "bottle":
-        target = mapping.get(imp.get("bottle_type") or "")
+        bottle_type = imp.get("bottle_type") or ""
+        target = mapping.get(bottle_type)
         if not target:
             raise NutritionError(
-                f"No food mapped for Huckleberry bottle type {imp.get('bottle_type')!r}"
+                f"No food mapped for Huckleberry bottle type {bottle_type!r}"
             )
         amount = volume_override or imp["amount_ml"]
         if is_recipe_mapping(target):
@@ -406,9 +426,14 @@ def _build_components(
                 raise NutritionError(
                     "No feeding recipe in effect at that time — add one in Settings → Recipe"
                 )
-            bm_default, batch_default = mapping_defaults(mapping)
+            bm_default, batch_default = recipe_food_defaults(mapping, foods)
             try:
-                return recipe_svc.mixed_components(recipe, amount, bm_default, batch_default)
+                if bottle_type == "Other":
+                    # Their convention: "Other" = the prepared mixed bottle.
+                    return recipe_svc.mixed_components(recipe, amount, bm_default, batch_default)
+                # Any other recipe-mapped type ("Formula") is a standalone
+                # top-up: whatever the recipe says top-ups are made of.
+                return recipe_svc.topoff_components(recipe, amount, batch_default)
             except ValueError as e:
                 raise NutritionError(str(e))
         if isinstance(target, list):
@@ -469,6 +494,7 @@ def create_feed_from_import(
         measured_ml=measured_ml,
         volume_override=volume_override,
         recipes=recipes,
+        foods=foods,
     )
     comps, totals = compute_components(components, foods)
     feed = Feed(
@@ -595,7 +621,9 @@ def _maybe_update_imported_feed(
         # the (possibly edited) time — a 75 → 85 correction is a full bottle,
         # not a scaled partial one.
         try:
-            new_components = _build_components(event, mapping, baby, recipes=recipes)
+            new_components = _build_components(
+                event, mapping, baby, recipes=recipes, foods=foods
+            )
         except NutritionError:
             return False
     elif event["mode"] == "bottle" and all(c.kind == "liquid" for c in feed.components):

@@ -12,10 +12,14 @@ F ml batch per prepared bottle (P = B + F):
 V < P is a partial feed of the prepared bottle (proportional); V == P is the
 full bottle; V > P is a bottle plus a top-off from the batch (breast milk is
 capped at what the bottle held).
+
+Top-ups: a separately logged "Formula" bottle in Huckleberry is a top-up. By
+default it is more of the batch; a recipe can name its own top-up food and
+mix (e.g. 9 g Pro-Phree in 60 ml water) when the plan uses something else.
 """
 
 from datetime import datetime
-from typing import Optional
+from typing import ClassVar, Optional
 
 from pydantic import AwareDatetime, BaseModel, Field, computed_field, model_validator
 
@@ -42,6 +46,11 @@ class RecipeIn(BaseModel):
     # "Breast Milk" / "Formula" foods.
     breast_milk_food_id: Optional[str] = None
     batch_food_id: Optional[str] = None
+    # Top-ups (a standalone "Formula" bottle): what they are made of and the
+    # liquid food they are logged as. Empty = a top-up is more of the batch.
+    topoff_powders: list[RecipePowder] = Field(default_factory=list, max_length=6)
+    topoff_water_ml: Optional[float] = Field(None, gt=0)
+    topoff_food_id: Optional[str] = None
     source: Optional[str] = Field(None, max_length=200)  # who ordered it, when
     notes: Optional[str] = None
 
@@ -62,6 +71,9 @@ class RecipeUpdate(BaseModel):
     feeds_per_day: Optional[int] = Field(None, gt=0, le=24)
     breast_milk_food_id: Optional[str] = None
     batch_food_id: Optional[str] = None
+    topoff_powders: Optional[list[RecipePowder]] = Field(None, max_length=6)
+    topoff_water_ml: Optional[float] = Field(None, gt=0)
+    topoff_food_id: Optional[str] = None
     source: Optional[str] = Field(None, max_length=200)
     notes: Optional[str] = None
 
@@ -69,6 +81,9 @@ class RecipeUpdate(BaseModel):
 class Recipe(RecipeIn):
     id: str
     created_at: datetime
+
+    # Computed fields — excluded when persisting / merging edits.
+    COMPUTED: ClassVar[set[str]] = {"prepared_ml", "feeds_per_batch", "has_own_topoff"}
 
     @computed_field  # type: ignore[misc]
     @property
@@ -82,6 +97,12 @@ class Recipe(RecipeIn):
         if not self.batch_final_volume_ml or self.batch_ml <= 0:
             return None
         return round(self.batch_final_volume_ml / self.batch_ml, 1)
+
+    @computed_field  # type: ignore[misc]
+    @property
+    def has_own_topoff(self) -> bool:
+        """True when top-ups are something other than more batch."""
+        return bool(self.topoff_food_id or self.topoff_powders or self.topoff_water_ml)
 
 
 class ResplitChange(BaseModel):

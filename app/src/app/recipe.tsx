@@ -8,7 +8,7 @@ import { fmtNum, localDateString } from '../lib/format';
 import { useBaby, useFoods } from '../lib/hooks';
 import { colors, fonts, spacing } from '../lib/theme';
 import type { Recipe, RecipeIn, RecipePowder, ResplitResult, Targets } from '../lib/types';
-import { Button, Card, DateField, DateTimeField, Field, Muted, SectionTitle, Stepper } from '../components/ui';
+import { Button, Card, Chip, DateField, DateTimeField, Field, Muted, SectionTitle, Stepper } from '../components/ui';
 import { showAlert } from '../lib/dialogs';
 
 // react-native-web silently no-ops Alert.alert — surface feedback on web too.
@@ -61,6 +61,14 @@ function batchLine(r: Recipe | RecipeIn): string | null {
   return `${powders}${water}`;
 }
 
+function topoffLine(r: Recipe | RecipeIn): string | null {
+  const powders = r.topoff_powders ?? [];
+  if (!powders.length && !r.topoff_water_ml) return null;
+  const parts = powders.map((p) => `${fmtNum(p.grams)} g ${p.name}`);
+  if (r.topoff_water_ml) parts.push(`${fmtNum(r.topoff_water_ml)} ml water`);
+  return parts.join(' + ');
+}
+
 function describeTargets(t: Targets): string {
   const parts: string[] = [];
   for (const vt of t.volume_targets ?? []) {
@@ -82,6 +90,10 @@ type Draft = {
   powders: RecipePowder[];
   batch_final_volume_ml: number;
   feeds_per_day: number;
+  topoff_powders: RecipePowder[];
+  topoff_water_ml: number;
+  topoff_food_id: string | null;
+  batch_food_id: string | null;
   source: string;
   notes: string;
 };
@@ -97,6 +109,10 @@ function draftFrom(r: Recipe | null): Draft {
     powders: r?.powders.map((p) => ({ ...p })) ?? [],
     batch_final_volume_ml: r?.batch_final_volume_ml ?? 0,
     feeds_per_day: r?.feeds_per_day ?? 8,
+    topoff_powders: r?.topoff_powders?.map((p) => ({ ...p })) ?? [],
+    topoff_water_ml: r?.topoff_water_ml ?? 0,
+    topoff_food_id: r?.topoff_food_id ?? null,
+    batch_food_id: r?.batch_food_id ?? null,
     source: '',
     notes: '',
   };
@@ -113,6 +129,10 @@ function draftOf(r: Recipe): Draft {
     powders: r.powders.map((p) => ({ ...p })),
     batch_final_volume_ml: r.batch_final_volume_ml ?? 0,
     feeds_per_day: r.feeds_per_day ?? 0,
+    topoff_powders: r.topoff_powders?.map((p) => ({ ...p })) ?? [],
+    topoff_water_ml: r.topoff_water_ml ?? 0,
+    topoff_food_id: r.topoff_food_id ?? null,
+    batch_food_id: r.batch_food_id ?? null,
     source: r.source ?? '',
     notes: r.notes ?? '',
   };
@@ -172,7 +192,7 @@ export default function RecipeScreen() {
       notify('Empty bottle', 'A recipe needs breast milk and/or batch formula per feed.');
       return;
     }
-    if (d.powders.some((p) => !p.name.trim() || p.grams <= 0)) {
+    if ([...d.powders, ...d.topoff_powders].some((p) => !p.name.trim() || p.grams <= 0)) {
       notify('Check powders', 'Every powder needs a name and grams above 0.');
       return;
     }
@@ -184,6 +204,10 @@ export default function RecipeScreen() {
       powders: d.powders.map((p) => ({ name: p.name.trim(), grams: p.grams })),
       batch_final_volume_ml: d.batch_final_volume_ml > 0 ? d.batch_final_volume_ml : null,
       feeds_per_day: d.feeds_per_day > 0 ? Math.round(d.feeds_per_day) : null,
+      topoff_powders: d.topoff_powders.map((p) => ({ name: p.name.trim(), grams: p.grams })),
+      topoff_water_ml: d.topoff_water_ml > 0 ? d.topoff_water_ml : null,
+      topoff_food_id: d.topoff_food_id,
+      batch_food_id: d.batch_food_id,
       source: d.source.trim() || null,
       notes: d.notes.trim() || null,
     };
@@ -220,7 +244,7 @@ export default function RecipeScreen() {
   const enableRecipeMode = async () => {
     if (!baby) return;
     try {
-      await api.hbUpdate(baby.id, { mapping: { Other: { mode: 'recipe' } } });
+      await api.hbUpdate(baby.id, { mapping: { Other: { mode: 'recipe' }, Formula: { mode: 'recipe' } } });
       refresh();
     } catch (e: any) {
       notify('Could not update', e.message);
@@ -233,7 +257,9 @@ export default function RecipeScreen() {
     const rows: Row[] = recipes.map((r) => ({
       at: r.effective_at,
       kind: 'recipe',
-      text: `${r.label} — ${bottleLine(r)}${batchLine(r) ? ` · ${batchLine(r)}` : ''}`,
+      text: `${r.label} — ${bottleLine(r)}${batchLine(r) ? ` · ${batchLine(r)}` : ''}${
+        topoffLine(r) ? ` · top-ups: ${topoffLine(r)}` : ''
+      }`,
       recipe: r,
     }));
     for (const p of historyQ.data ?? []) {
@@ -249,6 +275,11 @@ export default function RecipeScreen() {
 
   if (!baby) return null;
   const hbOther = hbQ.data?.connected ? hbQ.data.mapping['Other'] : undefined;
+  const hbFormula = hbQ.data?.connected ? hbQ.data.mapping['Formula'] : undefined;
+  const liquidFormulas = foods.filter(
+    (f) => f.unit_basis === 'per_100ml' && !f.archived && f.category !== 'breast_milk',
+  );
+  const foodName = (id: string | null | undefined) => foods.find((f) => f.id === id)?.name;
   const d = editing?.draft;
   const setD = (patch: Partial<Draft>) =>
     setEditing((e) => (e ? { ...e, draft: { ...e.draft, ...patch } } : e));
@@ -261,6 +292,10 @@ export default function RecipeScreen() {
           <>
             <Text style={styles.big}>{bottleLine(current)}</Text>
             {batchLine(current) ? <Text style={styles.line}>⚗️ Batch: {batchLine(current)}</Text> : null}
+            <Text style={styles.line}>
+              ➕ Top-ups: {topoffLine(current) ?? 'more of the batch'}
+              {current.topoff_food_id ? ` → logged as ${foodName(current.topoff_food_id) ?? 'its own food'}` : ''}
+            </Text>
             {current.feeds_per_batch ? (
               <Muted>
                 One batch covers ~{fmtNum(current.feeds_per_batch)} feeds of {fmtNum(current.batch_ml)} ml
@@ -362,6 +397,70 @@ export default function RecipeScreen() {
             <Stepper value={d.batch_final_volume_ml} onChange={(v) => setD({ batch_final_volume_ml: Math.max(0, v) })} step={10} suffix="ml" />
             <Muted style={{ marginBottom: 4, marginTop: spacing.sm }}>Feeds per day (for the yield estimate)</Muted>
             <Stepper value={d.feeds_per_day} onChange={(v) => setD({ feeds_per_day: Math.max(0, v) })} step={1} />
+            {liquidFormulas.length > 1 ? (
+              <>
+                <Muted style={{ marginBottom: 4, marginTop: spacing.sm }}>Batch is logged as</Muted>
+                <View style={styles.chips}>
+                  {liquidFormulas.map((f) => (
+                    <Chip key={f.id} label={f.name} selected={d.batch_food_id === f.id} onPress={() => setD({ batch_food_id: f.id })} />
+                  ))}
+                </View>
+              </>
+            ) : null}
+
+            <Text style={[styles.label, { marginTop: spacing.md }]}>Top-ups (a separate "Formula" bottle)</Text>
+            <Muted style={{ marginBottom: spacing.sm }}>
+              Leave empty when a top-up is just more of the batch. Fill in when top-ups are made
+              separately, e.g. 9 g Pro-Phree in 60 ml water.
+            </Muted>
+            {d.topoff_powders.map((p, i) => (
+              <View key={i} style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'flex-start' }}>
+                <View style={{ flex: 3 }}>
+                  <Field
+                    value={p.name}
+                    onChangeText={(v) =>
+                      setD({ topoff_powders: d.topoff_powders.map((q, j) => (j === i ? { ...q, name: v } : q)) })
+                    }
+                    placeholder="Powder, e.g. Pro-Phree"
+                  />
+                </View>
+                <View style={{ flex: 2 }}>
+                  <Stepper
+                    value={p.grams}
+                    onChange={(v) =>
+                      setD({ topoff_powders: d.topoff_powders.map((q, j) => (j === i ? { ...q, grams: Math.max(0, v) } : q)) })
+                    }
+                    step={1}
+                    suffix="g"
+                  />
+                </View>
+                <Pressable
+                  onPress={() => setD({ topoff_powders: d.topoff_powders.filter((_, j) => j !== i) })}
+                  style={{ paddingTop: 12, paddingHorizontal: 4 }}
+                >
+                  <Text style={{ color: colors.danger, fontSize: 18 }}>✕</Text>
+                </Pressable>
+              </View>
+            ))}
+            <Button
+              title="＋ Add top-up powder"
+              variant="secondary"
+              onPress={() => setD({ topoff_powders: [...d.topoff_powders, { name: 'Pro-Phree', grams: 9 }] })}
+              style={{ marginBottom: spacing.md }}
+            />
+            <Muted style={{ marginBottom: 4 }}>Water</Muted>
+            <Stepper value={d.topoff_water_ml} onChange={(v) => setD({ topoff_water_ml: Math.max(0, v) })} step={10} suffix="ml" />
+            <Muted style={{ marginBottom: 4, marginTop: spacing.sm }}>Top-ups are logged as</Muted>
+            <View style={styles.chips}>
+              <Chip label="Same as batch" selected={!d.topoff_food_id} onPress={() => setD({ topoff_food_id: null })} />
+              {liquidFormulas.map((f) => (
+                <Chip key={f.id} label={f.name} selected={d.topoff_food_id === f.id} onPress={() => setD({ topoff_food_id: f.id })} />
+              ))}
+            </View>
+            <Muted style={{ marginTop: 4 }}>
+              Pick a separate food when top-ups aren't the batch, so totals show them apart. Foods
+              are added under Settings → Foods.
+            </Muted>
 
             <Field label="Who ordered it / when" value={d.source} onChangeText={(v) => setD({ source: v })} placeholder="e.g. Madison (dietician) via MyChart, Aug 4" style={{ marginTop: spacing.md }} />
             <Field label="Notes" value={d.notes} onChangeText={(v) => setD({ notes: v })} placeholder="Why it changed, what to watch…" multiline />
@@ -387,9 +486,19 @@ export default function RecipeScreen() {
         ) : hbOther?.recipe ? (
           <>
             <Text style={styles.line}>✓ "Other" bottles split by the recipe in effect at the feed's time.</Text>
+            {hbFormula?.recipe ? (
+              <Text style={styles.line}>✓ "Formula" bottles logged as that recipe's top-up.</Text>
+            ) : (
+              <>
+                <Text style={styles.line}>
+                  ⚠️ "Formula" bottles always go to {hbFormula?.food_name ?? 'nothing'} — they ignore the
+                  recipe's top-up.
+                </Text>
+                <Button title='Switch "Formula" to: per recipe' onPress={enableRecipeMode} style={{ marginTop: spacing.sm }} />
+              </>
+            )}
             <Muted style={{ marginTop: 4 }}>
-              "Breast Milk" → {hbQ.data.mapping['Breast Milk']?.food_name ?? 'not mapped'} · "Formula" →{' '}
-              {hbQ.data.mapping['Formula']?.food_name ?? 'not mapped'} (pure batch top-offs)
+              "Breast Milk" → {hbQ.data.mapping['Breast Milk']?.food_name ?? 'not mapped'}
             </Muted>
             <Muted style={{ marginTop: 4 }}>
               When the plan changes, add a new recipe above — nothing else to configure.
@@ -557,6 +666,7 @@ const styles = StyleSheet.create({
   big: { fontSize: 18, fontFamily: fonts.bold, color: colors.text, marginBottom: 6 },
   line: { fontSize: 15, color: colors.text, marginBottom: 4 },
   label: { fontSize: 13, fontFamily: fonts.semibold, color: colors.muted, marginBottom: 6 },
+  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   historyRow: { paddingVertical: 10 },
   historyDates: { fontSize: 13, fontFamily: fonts.semibold, color: colors.muted },
   historyText: { fontSize: 15, color: colors.text, marginTop: 2 },
