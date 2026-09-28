@@ -33,7 +33,12 @@
           "imageWidth": 76
         }
       ],
-      "expo-font"
+      "expo-font",
+      "@react-native-community/datetimepicker",
+      "expo-image",
+      "expo-secure-store",
+      "expo-status-bar",
+      "expo-web-browser"
     ],
     "experiments": {
       "typedRoutes": true,
@@ -46,7 +51,7 @@
       }
     },
     "owner": "tarunkateja",
-    "runtimeVersion": "exposdk:54.0.0",
+    "runtimeVersion": "exposdk:57.0.0",
     "updates": {
       "url": "https://u.expo.dev/69050640-8d15-493d-a597-f928db274a4e"
     }
