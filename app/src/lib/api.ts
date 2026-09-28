@@ -14,6 +14,7 @@ import type {
   ChatReply,
   DailyIntakeSeries,
   DiaperSeries,
+  DietitianReport,
   Family,
   Feed,
   FeedComponentIn,
@@ -296,6 +297,9 @@ export const api = {
     get<DiaperSeries>(`/babies/${babyId}/analytics/diapers?from=${from}&to=${to}`),
   weightHistory: (babyId: string) =>
     get<WeightSeries>(`/babies/${babyId}/analytics/weights`),
+  /** The ready-to-send dietitian message: N full family days + today so far. */
+  dietitianReport: (babyId: string, days: number, notes = true) =>
+    get<DietitianReport>(`/babies/${babyId}/reports/dietitian?days=${days}&notes=${notes}`),
   rollingSummary: (
     babyId: string,
     window: {

@@ -219,6 +219,49 @@ export interface Summary {
   summary_text: string;
 }
 
+// --------------------------------------------------------------------------- //
+// Dietitian update (the MyChart feeding-log message)
+// --------------------------------------------------------------------------- //
+export interface ReportLine {
+  at: string;
+  text: string; // "90 ml prepared mix (large spit up)"
+  feed_ids: string[];
+}
+
+export interface ReportSection {
+  day: string; // YYYY-MM-DD
+  label: string; // "Monday 9/7", "This morning"
+  partial: boolean;
+  window_from: string;
+  window_to: string;
+  lines: ReportLine[];
+  feed_count: number;
+  total_ml: number;
+  breast_milk_ml: number;
+  batch_ml: number;
+  topup_ml: number;
+  weight_g?: number | null;
+  text: string;
+}
+
+export interface ReportWarning {
+  day: string;
+  at?: string | null;
+  message: string;
+}
+
+export interface DietitianReport {
+  baby_id: string;
+  baby_name: string;
+  days: number;
+  generated_at: string;
+  window_from: string;
+  window_to: string;
+  sections: ReportSection[];
+  warnings: ReportWarning[];
+  text: string;
+}
+
 export interface DailyIntakeDay {
   day: string; // YYYY-MM-DD
   feed_count: number;

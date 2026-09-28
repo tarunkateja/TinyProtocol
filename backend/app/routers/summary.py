@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from app.auth import CurrentUser, get_current_user
 from app.models.event import Event
 from app.models.feed import Feed
+from app.models.dietitian import DietitianReport
 from app.models.summary import (
     DailyIntakeDay,
     DailyIntakeSeries,
@@ -18,6 +19,7 @@ from app.models.summary import (
 from app.repo import families, keys, logs
 from app.routers.deps import get_baby_or_404
 from app.services import target_history
+from app.services.dietitian import dietitian_report
 from app.services.summary import summarize_window
 from app.services.tz import day_window, effective_day, since_local
 
@@ -83,6 +85,32 @@ def rolling_summary(
         window_from = now - timedelta(hours=hours or 24)
         label = ""
     return summarize_window(baby, window_from, now, tz_name, window_label=label)
+
+
+@router.get("/babies/{baby_id}/reports/dietitian", response_model=DietitianReport)
+def dietitian_update(
+    baby_id: str,
+    days: int = Query(3, ge=1, le=14, description="Full family days before today"),
+    as_of_local: Optional[datetime] = Query(
+        None, description="Build it as of this local time instead of now (reproduce a past message)"
+    ),
+    notes: bool = Query(True, description="Include the parent's feed notes in parentheses"),
+    user: CurrentUser = Depends(get_current_user),
+):
+    """The ready-to-send feeding-log message for the metabolic dietitian:
+    the last N full family days (day_start → day_start), one bullet per
+    feed, one total per day, plus today so far. Warnings list what to check
+    in the log before sending; they are never part of the text."""
+    baby = get_baby_or_404(user, baby_id)
+    fam = _family(user.family_id)
+    tz_name = fam["timezone"]
+    day_start = time.fromisoformat(fam.get("day_start") or "00:00")
+    now = None
+    if as_of_local is not None:
+        now = as_of_local.replace(tzinfo=ZoneInfo(tz_name)).astimezone(timezone.utc)
+    return dietitian_report(
+        user.family_id, baby, tz_name, day_start, days, now=now, include_notes=notes
+    )
 
 
 @router.get("/babies/{baby_id}/analytics/daily", response_model=DailyIntakeSeries)

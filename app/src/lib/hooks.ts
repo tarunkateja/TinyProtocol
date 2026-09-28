@@ -29,5 +29,6 @@ export function useInvalidateLogs() {
     qc.invalidateQueries({ queryKey: ['timeline'] });
     qc.invalidateQueries({ queryKey: ['day'] });
     qc.invalidateQueries({ queryKey: ['summary'] });
+    qc.invalidateQueries({ queryKey: ['dietitian-report'] });
   };
 }

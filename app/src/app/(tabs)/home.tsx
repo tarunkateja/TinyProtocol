@@ -218,7 +218,7 @@ export default function Home() {
       <View style={styles.actions}>
         <Button title="🍼 Log feed" onPress={() => router.push('/log-feed')} style={{ flex: 1 }} />
         <Button
-          title="📋 Clinic update"
+          title="📋 Dietitian update"
           variant="secondary"
           onPress={() => router.push('/summary')}
           style={{ flex: 1 }}

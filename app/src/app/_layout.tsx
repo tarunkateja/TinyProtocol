@@ -79,7 +79,7 @@ function RootNavigator() {
         <Stack.Screen name="settings" options={{ presentation: 'modal', title: 'Settings' }} />
         <Stack.Screen name="plan" options={{ presentation: 'modal', title: 'Plan' }} />
         <Stack.Screen name="mychart" options={{ presentation: 'modal', title: 'MyChart sync' }} />
-        <Stack.Screen name="summary" options={{ presentation: 'modal', title: 'Clinic update' }} />
+        <Stack.Screen name="summary" options={{ presentation: 'modal', title: 'Dietitian update' }} />
         <Stack.Screen name="totals" options={{ presentation: 'modal', title: 'Day totals' }} />
         <Stack.Screen
           name="recipe"

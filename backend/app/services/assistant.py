@@ -115,6 +115,34 @@ TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "get_dietitian_update",
+            "description": (
+                "Get the ready-to-send feeding-log update for the metabolic dietitian, "
+                "in the exact format the family pastes into MyChart: one section per "
+                "family day for the last N full days (plus this morning), one bullet per "
+                "feed with time, volume and the parent's note, and one total line per "
+                "day with the breast-milk amount. Call this whenever the parent asks for "
+                "the dietitian update (they may call it by the dietitian's name), "
+                "'feeding logs for the last N days', or a feeds message to send the care "
+                "team. Return the text VERBATIM — never reformat, summarize, add or drop "
+                "lines — and list any warnings separately so the parent can fix the log "
+                "before sending."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "days": {
+                        "type": "integer",
+                        "description": "How many full days before today to include, 1 to 14",
+                    }
+                },
+                "required": ["days"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "get_recent_summary",
             "description": (
                 "Get the same aggregated log for a rolling window of the last N hours "
@@ -255,6 +283,7 @@ only for rolling windows like "last 24 hours".
 assumed rate unless marked as weighed. Note this when latch numbers are material to your answer.
 - The feeding plan (bottle composition, batch recipe) changes over time; get_recipe_history \
 says what was in effect when. Mixed bottles in the log are already split per that recipe.
+- The dietitian update / "feeding logs to send": call get_dietitian_update(days) and return its text verbatim (a greeting line is fine). Never rebuild that message from get_day_summary.
 - Poop/constipation questions: use get_poop_history (gaps between poops, consistency, notes). \
 State gaps in days+hours; a gap of several days is a fact to report, not to diagnose.
 
@@ -423,6 +452,19 @@ def _run_tool(
                 "notes": r.notes,
             })
         return json.dumps({"recipes": out, "current": out[-1] if out else None})
+    if name == "get_dietitian_update":
+        from app.services.dietitian import dietitian_report
+
+        try:
+            days = max(1, min(14, int(tool_input.get("days", 3))))
+        except (TypeError, ValueError):
+            return json.dumps({"error": "days must be an integer"})
+        report = dietitian_report(family_id, baby, tz_name, day_start, days, now=now)
+        return json.dumps({
+            "text": report.text,
+            "warnings": [w.message for w in report.warnings],
+            "days": days,
+        })
     if name == "get_day_summary":
         try:
             day = date.fromisoformat(str(tool_input.get("date", "")))
