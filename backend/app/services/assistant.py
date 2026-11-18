@@ -7,13 +7,15 @@ quotes what comes back. The system prompt enforces the medical guardrails.
 
 import json
 from datetime import date, datetime, time, timedelta, timezone
-
-from openai import OpenAI
+from typing import TYPE_CHECKING
 
 from app.config import settings
 from app.models.baby import Baby
 from app.services.summary import summarize_window
 from app.services.tz import day_window, effective_day, to_local
+
+if TYPE_CHECKING:
+    from openai import OpenAI
 
 MAX_TOOL_ROUNDS = 5
 
@@ -249,7 +251,9 @@ def is_configured() -> bool:
     return bool(settings.openai_api_key)
 
 
-def _client() -> OpenAI:
+def _client() -> "OpenAI":
+    from openai import OpenAI  # lazy: keeps openai out of the API cold start
+
     return OpenAI(api_key=settings.openai_api_key)
 
 

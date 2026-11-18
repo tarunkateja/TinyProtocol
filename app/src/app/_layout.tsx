@@ -54,7 +54,10 @@ function RootNavigator() {
         contentStyle: { backgroundColor: colors.bg },
       }}
     >
-      <Stack.Protected guard={!!token}>
+      {/* Without redirectTo a signed-out launch falls through to the first
+          unguarded route in file order — (auth)/join, which has no way to
+          sign in. */}
+      <Stack.Protected guard={!!token} redirectTo="/login">
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen
           name="log-feed"
@@ -110,7 +113,7 @@ function RootNavigator() {
           options={{ presentation: 'modal', title: 'GA1 references' }}
         />
       </Stack.Protected>
-      <Stack.Protected guard={!token}>
+      <Stack.Protected guard={!token} redirectTo="/home">
         <Stack.Screen name="(auth)/login" options={{ headerShown: false }} />
         <Stack.Screen name="(auth)/register" options={{ title: 'Create account' }} />
         <Stack.Screen name="(auth)/join" options={{ title: 'Join your family' }} />

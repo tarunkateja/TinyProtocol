@@ -1,6 +1,5 @@
 from datetime import datetime, time, timezone
 
-import openai
 from fastapi import APIRouter, Depends, HTTPException
 from ulid import ULID
 
@@ -44,6 +43,10 @@ def _save_chat(user: CurrentUser, chat: Chat) -> None:
 def _run_reply(
     user: CurrentUser, chat: Chat, content: str, community_only: bool = False
 ) -> ChatReply:
+    # Imported here, not at module level: openai is a quarter of the API's
+    # cold-start import time and only chat replies need it.
+    import openai
+
     baby = get_baby_or_404(user, chat.baby_id)
     fam = families.get_family(user.family_id)
     profile = users.get_user(user.email)

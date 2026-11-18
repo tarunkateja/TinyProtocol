@@ -72,6 +72,25 @@ export async function setToken(token: string | null) {
   else await store.deleteItemAsync(TOKEN_KEY);
 }
 
+/** Seconds-since-epoch `iat` of a JWT, or null if it can't be read. */
+export function tokenIssuedAt(token: string): number | null {
+  try {
+    const b64 = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+    const padded = b64.padEnd(Math.ceil(b64.length / 4) * 4, '=');
+    return JSON.parse(atob(padded)).iat ?? null;
+  } catch {
+    return null;
+  }
+}
+
+// AuthProvider signs out when the API rejects our token, so an expired
+// session lands on the login screen instead of an app with no data.
+let _onUnauthorized: (() => void) | null = null;
+
+export function setUnauthorizedHandler(fn: (() => void) | null) {
+  _onUnauthorized = fn;
+}
+
 export class ApiError extends Error {
   status: number;
   constructor(status: number, message: string) {
@@ -85,9 +104,13 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     'Content-Type': 'application/json',
     ...(options.headers as Record<string, string>),
   };
-  if (_token) headers.Authorization = `Bearer ${_token}`;
+  const sent = _token;
+  if (sent) headers.Authorization = `Bearer ${sent}`;
 
   const resp = await fetch(`${API_URL}/v1${path}`, { ...options, headers });
+  // Only for the token still in use — not a wrong-password login, and not a
+  // straggler from before a fresh sign-in.
+  if (resp.status === 401 && sent && sent === _token) _onUnauthorized?.();
   if (!resp.ok) {
     let detail = `Request failed (${resp.status})`;
     try {
@@ -122,6 +145,7 @@ export const api = {
     post<TokenResponse>('/auth/login', body),
   join: (body: { email: string; password: string; name: string; invite_code: string }) =>
     post<TokenResponse>('/auth/join', body),
+  refreshToken: () => post<TokenResponse>('/auth/refresh'),
   createInvite: () => post<{ code: string; expires_at: string }>('/auth/invites'),
   me: () => get<{ user: TokenResponse['user']; family: Family }>('/me'),
   updateFamily: (body: Partial<Pick<Family, 'name' | 'timezone' | 'day_start' | 'rhythms'>>) =>

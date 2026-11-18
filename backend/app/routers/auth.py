@@ -73,6 +73,19 @@ def login(body: LoginIn):
     return _token_response(user["id"], user["email"], user["name"], user["family_id"])
 
 
+@router.post("/refresh", response_model=TokenOut)
+def refresh(user: CurrentUser = Depends(get_current_user)):
+    """A fresh token for a still-valid one. The app calls this on launch, so a
+    session only lapses after jwt_expiry_days of not opening the app (fixed
+    expiry signed both parents out on 2026-10-05, 90 days after sign-up)."""
+    profile = users.get_user(user.email)
+    if profile is None:
+        raise HTTPException(401, "Account not found")
+    return _token_response(
+        profile["id"], profile["email"], profile["name"], profile["family_id"]
+    )
+
+
 @router.post("/join", response_model=TokenOut, status_code=201)
 def join(body: JoinIn):
     invite = families.find_invite(body.invite_code.strip().upper())

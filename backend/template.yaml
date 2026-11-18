@@ -142,6 +142,9 @@ Resources:
       FunctionName: !Sub tinyprotocol-api-${Stage}
       CodeUri: .
       Handler: app.main.handler
+      # Lambda CPU scales with memory; 1024 roughly halves the cold-start
+      # import time, which a rarely-opened app pays on nearly every launch.
+      MemorySize: 1024
       Environment:
         Variables:
           TABLE_NAME: !Ref Table

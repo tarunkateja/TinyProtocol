@@ -184,3 +184,32 @@ def test_auth_required_and_family_isolation(client):
         headers={"Authorization": f"Bearer {b['access_token']}"},
     )
     assert resp.status_code == 404
+
+
+def test_token_refresh_extends_session(auth_client):
+    import jwt
+
+    from app.config import settings
+
+    old = auth_client.headers["Authorization"].removeprefix("Bearer ")
+    resp = auth_client.post("/v1/auth/refresh")
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["user"]["email"] == "dad@example.com"
+    new = body["access_token"]
+    claims = jwt.decode(new, settings.jwt_secret, algorithms=["HS256"])
+    assert claims["exp"] >= jwt.decode(old, settings.jwt_secret, algorithms=["HS256"])["exp"]
+    assert auth_client.get(
+        "/v1/babies", headers={"Authorization": f"Bearer {new}"}
+    ).status_code == 200
+
+    # An already-expired token can't be refreshed — that's a real sign-in.
+    expired = jwt.encode(
+        {**claims, "exp": datetime.now(timezone.utc) - timedelta(days=1)},
+        settings.jwt_secret, algorithm="HS256",
+    )
+    resp = auth_client.post(
+        "/v1/auth/refresh", headers={"Authorization": f"Bearer {expired}"}
+    )
+    assert resp.status_code == 401
+    assert "expired" in resp.json()["detail"]
