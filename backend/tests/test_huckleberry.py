@@ -741,3 +741,39 @@ def test_prefix_dup_pair_collision_stays_quiet(hb_client):
     assert result["new_pending"] == 0
     assert len(c.get(f"/v1/babies/{c.baby_id}/feeds").json()["items"]) == 2
     assert len(_imports(c)) == 2
+
+
+# --------------------------------------------------------------------------- #
+# Query pagination: DynamoDB stops a query page at 1 MB. Tara's HBIMPORT rows
+# passed that on 2026-10-15; list_by_prefix read only page one, so the tail
+# (p: pump keys sort last) looked new to every sync and each pump session
+# re-imported every 30 minutes until it left the 72h window.
+# --------------------------------------------------------------------------- #
+def test_import_rows_past_first_query_page_are_not_reimported(hb_client, monkeypatch):
+    from app.repo import family_items
+
+    c = hb_client
+    c.patch(f"/v1/babies/{c.baby_id}/huckleberry", json={"auto_import": True})
+    c.hb_events.extend([_bottle("evt-1", 4), _pump("p:1", 3), _pump("p:2", 2), _pump("p:3", 1)])
+    assert _sync(c)["auto_imported"] == 4
+
+    # Tiny pages stand in for the 1 MB cap.
+    real_get_table = family_items.get_table
+
+    class TwoPerPage:
+        def __init__(self, table):
+            self._table = table
+
+        def query(self, **kwargs):
+            return self._table.query(Limit=2, **kwargs)
+
+        def __getattr__(self, name):
+            return getattr(self._table, name)
+
+    monkeypatch.setattr(family_items, "get_table", lambda: TwoPerPage(real_get_table()))
+
+    result = _sync(c)
+    assert result["auto_imported"] == 0
+    assert result["new_pending"] == 0
+    assert len(_events_list(c)) == 3
+    assert len(_imports(c)) == 4

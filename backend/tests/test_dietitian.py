@@ -3,7 +3,7 @@ one bullet per feed, no split, one total per day, this-morning section —
 plus the pre-send warnings."""
 
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from app.models.baby import Baby
@@ -152,7 +152,9 @@ def test_pending_huckleberry_import_is_a_warning(hb_client):
 def test_assistant_tool_returns_the_same_text(auth_client):
     c = auth_client
     bm, ga1, _ = _setup_plan(c)
-    _feed(c, _local(2026, 9, 26, 9), _liquid(bm, 55), _liquid(ga1, 35))
+    # The tool reports relative to the real now, so the feed must be recent.
+    d = (datetime.now(TZ) - timedelta(days=2)).date()
+    _feed(c, _local(d.year, d.month, d.day, 9), _liquid(bm, 55), _liquid(ga1, 35))
     baby = Baby.model_validate(c.get(f"/v1/babies/{c.baby_id}").json())
     family_id = c.get("/v1/family").json()["id"]
     from datetime import time
@@ -162,5 +164,5 @@ def test_assistant_tool_returns_the_same_text(auth_client):
         day_start=time(8, 0), family_id=family_id,
     ))
     assert out["days"] == 14  # clamped
-    assert "Saturday 9/26\n  - 9:00 AM — 90 ml prepared mix\nTotal: 90 ml (55 ml breast milk)." in out["text"]
+    assert f"{d:%A} {d.month}/{d.day}\n  - 9:00 AM — 90 ml prepared mix\nTotal: 90 ml (55 ml breast milk)." in out["text"]
     assert isinstance(out["warnings"], list)

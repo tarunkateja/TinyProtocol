@@ -78,8 +78,18 @@ def scan_sk_prefix(sk_prefix: str) -> list[dict]:
 
 
 def list_by_prefix(family_id: str, sk_prefix: str) -> list[dict]:
-    resp = get_table().query(
-        KeyConditionExpression=Key("PK").eq(keys.family_pk(family_id))
+    """Every item under the prefix. Paginates: a query page stops at 1 MB, and
+    HBIMPORT rows outgrew that by 2026-10-15 — the unread tail (p: pump keys
+    sort last) looked new to every sync and re-imported each 30 minutes."""
+    items: list[dict] = []
+    kwargs: dict = {
+        "KeyConditionExpression": Key("PK").eq(keys.family_pk(family_id))
         & Key("SK").begins_with(sk_prefix)
-    )
-    return [from_item(i) for i in resp["Items"]]
+    }
+    while True:
+        resp = get_table().query(**kwargs)
+        items.extend(from_item(i) for i in resp["Items"])
+        lek = resp.get("LastEvaluatedKey")
+        if not lek:
+            return items
+        kwargs["ExclusiveStartKey"] = lek
