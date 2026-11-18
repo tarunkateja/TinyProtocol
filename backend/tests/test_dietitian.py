@@ -166,3 +166,48 @@ def test_assistant_tool_returns_the_same_text(auth_client):
     assert out["days"] == 14  # clamped
     assert f"{d:%A} {d.month}/{d.day}\n  - 9:00 AM — 90 ml prepared mix\nTotal: 90 ml (55 ml breast milk)." in out["text"]
     assert isinstance(out["warnings"], list)
+
+
+def test_enfamil_bottles_are_named_and_totalled(auth_client):
+    c = auth_client
+    assert c.patch("/v1/family", json={"day_start": "08:00"}).status_code == 200
+    bm = c.foods["Breast milk"]
+    ga1 = c.foods["GA1 metabolic formula (prepared)"]
+    enf = c.post("/v1/foods", json={
+        "name": "Enfamil (NeuroPro Gentlease, prepared)", "category": "formula",
+        "unit_basis": "per_100ml", "natural_protein_g_per_unit": 1.55, "lysine_mg_per_unit": 142,
+    }).json()
+    resp = c.post(f"/v1/babies/{c.baby_id}/recipes", json={
+        "label": "100s", "effective_at": _local(2026, 11, 8, 8),
+        "breast_milk_ml": 65, "batch_ml": 35, "overfill_same_mix": True,
+        "breast_milk_food_id": bm["id"], "batch_food_id": ga1["id"],
+        "alt_bottles": [{"label": "Enfamil", "keywords": ["Enfamil"], "milk_food_id": enf["id"],
+                         "milk_ml": 60, "batch_ml": 40}],
+    })
+    assert resp.status_code == 201, resp.text
+
+    _feed(c, _local(2026, 11, 14, 9), _liquid(bm, 65), _liquid(ga1, 35))
+    _feed(c, _local(2026, 11, 14, 13), _liquid(enf, 60), _liquid(ga1, 40), notes="Enfamil")
+    _feed(c, _local(2026, 11, 14, 17), _liquid(enf, 48), _liquid(ga1, 32), notes="Enfamil 1 tsp miralax")
+    _feed(c, _local(2026, 11, 14, 21), _liquid(bm, 71.5), _liquid(ga1, 38.5))  # same-mix top-off
+    _feed(c, _local(2026, 11, 15, 9), _liquid(bm, 65), _liquid(ga1, 35))
+
+    body = c.get(
+        f"/v1/babies/{c.baby_id}/reports/dietitian",
+        params={"days": 1, "as_of_local": "2026-11-15T09:30:00"},
+    ).json()
+    assert body["text"] == "\n".join([
+        "Saturday 11/14",
+        "  - 9:00 AM — 100 ml prepared mix",
+        "  - 1:00 PM — 100 ml Enfamil mix",
+        "  - 5:00 PM — 80 ml Enfamil mix (Enfamil 1 tsp miralax)",
+        "  - 9:00 PM — 110 ml (100 ml prepared mix + 10 ml top-off)",
+        "Total: 390 ml (136.5 ml breast milk, 108 ml Enfamil).",
+        "",
+        "This morning",
+        "  - 9:00 AM — 100 ml prepared mix",
+    ])
+    sat = body["sections"][0]
+    assert sat["alt_ml"] == {"Enfamil": 108}
+    # Topped off from the same mix → nothing to confirm about the 110 ml bottle.
+    assert body["warnings"] == []

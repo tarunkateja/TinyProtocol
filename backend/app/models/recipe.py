@@ -11,7 +11,14 @@ F ml batch per prepared bottle (P = B + F):
     breast_milk = min(B, V * B / P);  batch = V - breast_milk
 V < P is a partial feed of the prepared bottle (proportional); V == P is the
 full bottle; V > P is a bottle plus a top-off from the batch (breast milk is
-capped at what the bottle held).
+capped at what the bottle held) — unless the recipe says over-full bottles
+were topped off from the SAME mix (`overfill_same_mix`), in which case the
+whole volume splits in the bottle's ratio.
+
+Alternate bottles: when breast milk runs short, some bottles are made with
+something else in its place (e.g. 60 ml Enfamil + 40 ml batch). The parents
+mark those in the Huckleberry note, so a mixed bottle whose note names one of
+an alternate's keywords splits by that alternate instead.
 
 Top-ups: a separately logged "Formula" bottle in Huckleberry is a top-up. By
 default it is more of the batch; a recipe can name its own top-up food and
@@ -29,6 +36,31 @@ class RecipePowder(BaseModel):
     grams: float = Field(gt=0)
     # Optional link to a powder food in the catalog (for future nutrition).
     food_id: Optional[str] = None
+
+
+class AltBottle(BaseModel):
+    """A bottle made with something in place of the breast milk, e.g.
+    'Enfamil': 60 ml Enfamil + 40 ml batch, picked when the feed's note
+    mentions one of the keywords."""
+
+    label: str = Field(min_length=1, max_length=40)
+    keywords: list[str] = Field(min_length=1, max_length=6)
+    milk_food_id: str  # the liquid that replaces breast milk
+    milk_ml: float = Field(ge=0)
+    batch_ml: float = Field(ge=0)
+
+    @model_validator(mode="after")
+    def _has_a_bottle(self) -> "AltBottle":
+        self.keywords = [k.strip() for k in self.keywords if k.strip()]
+        if not self.keywords:
+            raise ValueError("an alternate bottle needs at least one note keyword")
+        if self.milk_ml + self.batch_ml <= 0:
+            raise ValueError("an alternate bottle needs some ml")
+        return self
+
+    @property
+    def prepared_ml(self) -> float:
+        return round(self.milk_ml + self.batch_ml, 1)
 
 
 class RecipeIn(BaseModel):
@@ -51,6 +83,10 @@ class RecipeIn(BaseModel):
     topoff_powders: list[RecipePowder] = Field(default_factory=list, max_length=6)
     topoff_water_ml: Optional[float] = Field(None, gt=0)
     topoff_food_id: Optional[str] = None
+    # True: a bottle logged above the prepared volume was topped off from the
+    # same mix, so it splits in the bottle's ratio (no breast-milk cap).
+    overfill_same_mix: bool = False
+    alt_bottles: list[AltBottle] = Field(default_factory=list, max_length=4)
     source: Optional[str] = Field(None, max_length=200)  # who ordered it, when
     notes: Optional[str] = None
 
@@ -74,6 +110,8 @@ class RecipeUpdate(BaseModel):
     topoff_powders: Optional[list[RecipePowder]] = Field(None, max_length=6)
     topoff_water_ml: Optional[float] = Field(None, gt=0)
     topoff_food_id: Optional[str] = None
+    overfill_same_mix: Optional[bool] = None
+    alt_bottles: Optional[list[AltBottle]] = Field(None, max_length=4)
     source: Optional[str] = Field(None, max_length=200)
     notes: Optional[str] = None
 

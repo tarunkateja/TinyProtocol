@@ -7,13 +7,14 @@ changing effective_at moves the item (delete + put).
 """
 
 import math
+import re
 from datetime import datetime, timezone
 from typing import Optional
 
 from ulid import ULID
 
 from app.models.feed import LiquidComponent
-from app.models.recipe import Recipe, RecipeIn, RecipeUpdate
+from app.models.recipe import AltBottle, Recipe, RecipeIn, RecipeUpdate
 from app.repo import family_items, keys
 
 
@@ -83,18 +84,58 @@ def _round1(x: float) -> float:
     return math.floor(x * 10 + 0.5) / 10
 
 
+def _split(milk_ml: float, batch_ml: float, volume_ml: float, same_mix: bool) -> tuple[float, float]:
+    prepared = milk_ml + batch_ml
+    if prepared <= 0:
+        return 0.0, _round1(volume_ml)
+    share = volume_ml * milk_ml / prepared
+    milk = _round1(share if same_mix else min(milk_ml, share))
+    return milk, _round1(volume_ml - milk)
+
+
 def split_bottle(recipe: Recipe, volume_ml: float) -> tuple[float, float]:
     """(breast_milk_ml, batch_ml) for a logged mixed-bottle volume.
 
-    Proportional to the prepared bottle while V <= prepared (a partial feed),
-    breast milk capped at the bottle's share once V exceeds it (a top-off
-    from the batch logged in the same entry). Sum is exactly volume_ml.
+    Proportional to the prepared bottle while V <= prepared (a partial feed).
+    Once V exceeds it, breast milk is capped at the bottle's share (a top-off
+    from the batch logged in the same entry) — or, with overfill_same_mix,
+    stays proportional (topped off from the same mix). Sum is exactly V.
     """
-    prepared = recipe.breast_milk_ml + recipe.batch_ml
-    if prepared <= 0:
-        return 0.0, _round1(volume_ml)
-    bm = _round1(min(recipe.breast_milk_ml, volume_ml * recipe.breast_milk_ml / prepared))
-    return bm, _round1(volume_ml - bm)
+    return _split(recipe.breast_milk_ml, recipe.batch_ml, volume_ml, recipe.overfill_same_mix)
+
+
+def _words(text: str) -> list[str]:
+    return re.findall(r"[a-z0-9]+", text.lower())
+
+
+def _close(a: str, b: str) -> bool:
+    """Same word, or one typo apart for words of 5+ letters ('Engamil')."""
+    if a == b:
+        return True
+    if min(len(a), len(b)) < 5 or abs(len(a) - len(b)) > 1:
+        return False
+    # Levenshtein distance <= 1
+    if len(a) == len(b):
+        return sum(x != y for x, y in zip(a, b)) == 1
+    short, long_ = (a, b) if len(a) < len(b) else (b, a)
+    return any(long_[:i] + long_[i + 1:] == short for i in range(len(long_)))
+
+
+def match_alt_bottle(recipe: Recipe, notes: Optional[str]) -> Optional[AltBottle]:
+    """The recipe's alternate bottle whose keyword appears in the note."""
+    if not notes or not recipe.alt_bottles:
+        return None
+    words = _words(notes)
+    for alt in recipe.alt_bottles:
+        for kw in alt.keywords:
+            kw_words = _words(kw)
+            if not kw_words:
+                continue
+            n = len(kw_words)
+            for i in range(len(words) - n + 1):
+                if all(_close(w, k) for w, k in zip(words[i:i + n], kw_words)):
+                    return alt
+    return None
 
 
 def mixed_components(
@@ -102,12 +143,20 @@ def mixed_components(
     volume_ml: float,
     breast_milk_food_id: Optional[str],
     batch_food_id: Optional[str],
+    notes: Optional[str] = None,
 ) -> list[LiquidComponent]:
     """Feed components for a mixed bottle of `volume_ml` under `recipe`.
-    Food ids on the recipe win; the caller passes the mapping's defaults."""
+    Food ids on the recipe win; the caller passes the mapping's defaults.
+    A note naming one of the recipe's alternate bottles ("Enfamil") splits
+    by that bottle instead, with its milk in place of breast milk."""
     bm_food = recipe.breast_milk_food_id or breast_milk_food_id
     batch_food = recipe.batch_food_id or batch_food_id
-    bm_ml, batch_ml = split_bottle(recipe, volume_ml)
+    alt = match_alt_bottle(recipe, notes)
+    if alt is not None:
+        bm_food = alt.milk_food_id
+        bm_ml, batch_ml = _split(alt.milk_ml, alt.batch_ml, volume_ml, recipe.overfill_same_mix)
+    else:
+        bm_ml, batch_ml = split_bottle(recipe, volume_ml)
     comps: list[LiquidComponent] = []
     if bm_ml > 0:
         if not bm_food:
@@ -154,4 +203,11 @@ def describe(recipe: Recipe) -> str:
     topoff = describe_topoff(recipe)
     if topoff:
         line += f" · top-ups: {topoff}"
+    for alt in recipe.alt_bottles:
+        line += (
+            f" · {alt.label} bottles (note says {'/'.join(alt.keywords)}): "
+            f"{alt.milk_ml:g} {alt.label} + {alt.batch_ml:g} batch"
+        )
+    if recipe.overfill_same_mix:
+        line += " · over-full bottles topped off from the same mix"
     return line

@@ -430,7 +430,9 @@ def _build_components(
             try:
                 if bottle_type == "Other":
                     # Their convention: "Other" = the prepared mixed bottle.
-                    return recipe_svc.mixed_components(recipe, amount, bm_default, batch_default)
+                    return recipe_svc.mixed_components(
+                        recipe, amount, bm_default, batch_default, notes=imp.get("notes")
+                    )
                 # Any other recipe-mapped type ("Formula") is a standalone
                 # top-up: whatever the recipe says top-ups are made of.
                 return recipe_svc.topoff_components(recipe, amount, batch_default)

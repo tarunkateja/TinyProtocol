@@ -149,7 +149,7 @@ export default function Today() {
         ListFooterComponent={
           timelineQ.isFetchingNextPage ? (
             <ActivityIndicator color={colors.primary} style={{ marginVertical: spacing.md }} />
-          ) : null
+          ) : undefined
         }
         refreshControl={
           <RefreshControl
@@ -226,6 +226,9 @@ export default function Today() {
                 }
                 color={eventTheme.feed.color}
               />
+              {(s?.formula_ml ?? 0) > 0 && (
+                <Stat label="infant formula" value={`${fmtNum(s?.formula_ml)} ml`} color={colors.formula} />
+              )}
               <Stat
                 label="GA1 formula"
                 value={`${fmtNum(s?.metabolic_formula_ml)} ml`}
@@ -409,6 +412,17 @@ function feedKind(feed: Feed): { label: string; icon: string; color: string } {
     return { label: 'Latch', icon: '🤱', color: '#A84479' }; // deepest rose
   const cats = new Set(comps.map((c) => c.food_category));
   const hasPowder = comps.some((c) => c.kind === 'powder');
+  // Standard formula standing in for breast milk (e.g. an Enfamil bottle when
+  // milk runs short) — called out by name so those feeds stand out.
+  const stdFormula = comps.find((c) => c.kind === 'liquid' && c.food_category === 'formula');
+  if (stdFormula) {
+    const name = stdFormula.food_name.replace(/\s*\([^)]*\)/g, '').trim() || 'Formula';
+    return {
+      label: cats.size > 1 ? `${name} mix` : `${name} bottle`,
+      icon: '🥫',
+      color: colors.formula,
+    };
+  }
   if (cats.size > 1 || hasPowder)
     return { label: 'Mixed bottle', icon: '🧪', color: '#C75D92' };
   if (cats.has('metabolic_formula'))

@@ -270,6 +270,8 @@ export interface DailyIntakeDay {
   formula_ml: number;
   metabolic_formula_ml: number;
   other_ml: number;
+  // Mean of this day and the two before it; null for today and around empty days.
+  avg3_total_ml?: number | null;
 }
 
 export interface DiaperDay {
@@ -307,6 +309,10 @@ export interface DailyIntakeSeries {
   from_day: string;
   to_day: string;
   days: DailyIntakeDay[];
+  // Everything fed in the last 72 hours (rolling, ignores the day boundary).
+  last_72h_ml: number;
+  last_72h_feed_count: number;
+  last_72h_per_day_ml: number;
 }
 
 export interface WeightPoint {
@@ -510,6 +516,16 @@ export interface RecipePowder {
   food_id?: string | null;
 }
 
+// A bottle made with something in place of breast milk (e.g. Enfamil), picked
+// when the Huckleberry note mentions one of the keywords.
+export interface AltBottle {
+  label: string;
+  keywords: string[];
+  milk_food_id: string;
+  milk_ml: number;
+  batch_ml: number;
+}
+
 export interface RecipeIn {
   label: string;
   effective_at: string; // ISO datetime
@@ -524,6 +540,9 @@ export interface RecipeIn {
   topoff_powders?: RecipePowder[];
   topoff_water_ml?: number | null;
   topoff_food_id?: string | null;
+  // Over-full bottles topped off from the same mix → split in the bottle's ratio.
+  overfill_same_mix?: boolean;
+  alt_bottles?: AltBottle[];
   source?: string | null;
   notes?: string | null;
 }

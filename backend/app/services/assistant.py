@@ -451,6 +451,21 @@ def _run_tool(
                     if r.has_own_topoff
                     else "more of the batch formula"
                 ),
+                "over_full_bottles": (
+                    "topped off from the same mix (split in the bottle's ratio)"
+                    if r.overfill_same_mix
+                    else "the extra is batch formula"
+                ),
+                "alternate_bottles": [
+                    {
+                        "label": a.label,
+                        "used_when_note_mentions": a.keywords,
+                        "milk_ml": a.milk_ml,
+                        "batch_formula_ml": a.batch_ml,
+                        "replaces": "breast milk",
+                    }
+                    for a in r.alt_bottles
+                ],
                 "feeds_per_day": r.feeds_per_day,
                 "source": r.source,
                 "notes": r.notes,

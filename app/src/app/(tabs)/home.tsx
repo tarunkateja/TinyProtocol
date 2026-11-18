@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { api } from '../../lib/api';
 import { DEFAULT_RHYTHMS } from '../../lib/feedReminder';
@@ -27,7 +27,7 @@ function fmtClock(iso: string): string {
 
 export default function Home() {
   const router = useRouter();
-  const { baby } = useBaby();
+  const { baby, isError: babyFailed, error: babyError, refetch: refetchBaby } = useBaby();
   const { family } = useFamily();
   const dayStart = family?.day_start ?? '00:00';
   const today = effectiveDayString(dayStart);
@@ -106,7 +106,22 @@ export default function Home() {
   const ga1 = vol('metabolic_formula');
   const lysineTarget = s?.targets.lysine_mg_per_day ?? null;
 
-  if (!baby) return null;
+  // Never a blank screen: the first request of a launch can take a few
+  // seconds while the API wakes up, and a failure should say so.
+  if (!baby) {
+    return (
+      <View style={{ padding: spacing.lg, gap: spacing.md }}>
+        {babyFailed ? (
+          <>
+            <Muted>Couldn't load: {babyError?.message}</Muted>
+            <Button title="Try again" onPress={() => refetchBaby()} />
+          </>
+        ) : (
+          <ActivityIndicator color={colors.primary} style={{ marginTop: spacing.xl }} />
+        )}
+      </View>
+    );
+  }
 
   return (
     <ScrollView contentContainerStyle={{ padding: spacing.lg, paddingBottom: spacing.xl }}>
@@ -134,6 +149,9 @@ export default function Home() {
             direction={bm?.direction}
             color={colors.breastMilk}
           />
+          {(s?.formula_ml ?? 0) > 0 && (
+            <TargetRow label="Infant formula" value={s?.formula_ml ?? 0} color={colors.formula} />
+          )}
           <TargetRow
             label="GA1 formula"
             value={s?.metabolic_formula_ml ?? 0}

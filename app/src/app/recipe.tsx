@@ -7,7 +7,7 @@ import { api } from '../lib/api';
 import { fmtNum, localDateString } from '../lib/format';
 import { useBaby, useFoods } from '../lib/hooks';
 import { colors, fonts, spacing } from '../lib/theme';
-import type { Recipe, RecipeIn, RecipePowder, ResplitResult, Targets } from '../lib/types';
+import type { AltBottle, Recipe, RecipeIn, RecipePowder, ResplitResult, Targets } from '../lib/types';
 import { Button, Card, Chip, DateField, DateTimeField, Field, Muted, SectionTitle, Stepper } from '../components/ui';
 import { showAlert } from '../lib/dialogs';
 
@@ -69,6 +69,12 @@ function topoffLine(r: Recipe | RecipeIn): string | null {
   return parts.join(' + ');
 }
 
+function altLines(r: Recipe | RecipeIn): string[] {
+  return (r.alt_bottles ?? []).map(
+    (a) => `${a.label} bottles: ${fmtNum(a.milk_ml)} ml ${a.label} + ${fmtNum(a.batch_ml)} ml batch (note says "${a.keywords.join('" / "')}")`,
+  );
+}
+
 function describeTargets(t: Targets): string {
   const parts: string[] = [];
   for (const vt of t.volume_targets ?? []) {
@@ -94,9 +100,16 @@ type Draft = {
   topoff_water_ml: number;
   topoff_food_id: string | null;
   batch_food_id: string | null;
+  overfill_same_mix: boolean;
+  alt_bottles: AltDraft[];
   source: string;
   notes: string;
 };
+
+// Keywords are edited as one comma-separated string.
+type AltDraft = Omit<AltBottle, 'keywords'> & { keywords: string };
+
+const altDraft = (a: AltBottle): AltDraft => ({ ...a, keywords: a.keywords.join(', ') });
 
 function draftFrom(r: Recipe | null): Draft {
   const now = new Date();
@@ -113,6 +126,8 @@ function draftFrom(r: Recipe | null): Draft {
     topoff_water_ml: r?.topoff_water_ml ?? 0,
     topoff_food_id: r?.topoff_food_id ?? null,
     batch_food_id: r?.batch_food_id ?? null,
+    overfill_same_mix: r?.overfill_same_mix ?? false,
+    alt_bottles: (r?.alt_bottles ?? []).map(altDraft),
     source: '',
     notes: '',
   };
@@ -133,6 +148,8 @@ function draftOf(r: Recipe): Draft {
     topoff_water_ml: r.topoff_water_ml ?? 0,
     topoff_food_id: r.topoff_food_id ?? null,
     batch_food_id: r.batch_food_id ?? null,
+    overfill_same_mix: r.overfill_same_mix ?? false,
+    alt_bottles: (r.alt_bottles ?? []).map(altDraft),
     source: r.source ?? '',
     notes: r.notes ?? '',
   };
@@ -196,6 +213,18 @@ export default function RecipeScreen() {
       notify('Check powders', 'Every powder needs a name and grams above 0.');
       return;
     }
+    const alts: AltBottle[] = d.alt_bottles.map((a) => ({
+      ...a,
+      label: a.label.trim(),
+      keywords: a.keywords.split(',').map((k) => k.trim()).filter(Boolean),
+    }));
+    if (alts.some((a) => !a.label || !a.keywords.length || !a.milk_food_id || a.milk_ml + a.batch_ml <= 0)) {
+      notify(
+        'Check the other bottles',
+        'Each one needs a name, a word from the Huckleberry note (e.g. Enfamil), what it is logged as, and some ml.',
+      );
+      return;
+    }
     const body: RecipeIn = {
       label: d.label.trim(),
       effective_at: when.toISOString(),
@@ -208,6 +237,8 @@ export default function RecipeScreen() {
       topoff_water_ml: d.topoff_water_ml > 0 ? d.topoff_water_ml : null,
       topoff_food_id: d.topoff_food_id,
       batch_food_id: d.batch_food_id,
+      overfill_same_mix: d.overfill_same_mix,
+      alt_bottles: alts,
       source: d.source.trim() || null,
       notes: d.notes.trim() || null,
     };
@@ -259,7 +290,7 @@ export default function RecipeScreen() {
       kind: 'recipe',
       text: `${r.label} — ${bottleLine(r)}${batchLine(r) ? ` · ${batchLine(r)}` : ''}${
         topoffLine(r) ? ` · top-ups: ${topoffLine(r)}` : ''
-      }`,
+      }${altLines(r).map((l) => ` · ${l}`).join('')}`,
       recipe: r,
     }));
     for (const p of historyQ.data ?? []) {
@@ -279,6 +310,9 @@ export default function RecipeScreen() {
   const liquidFormulas = foods.filter(
     (f) => f.unit_basis === 'per_100ml' && !f.archived && f.category !== 'breast_milk',
   );
+  const liquids = foods.filter((f) => f.unit_basis === 'per_100ml' && !f.archived);
+  const setAlt = (i: number, patch: Partial<AltDraft>) =>
+    setD({ alt_bottles: d!.alt_bottles.map((a, j) => (j === i ? { ...a, ...patch } : a)) });
   const foodName = (id: string | null | undefined) => foods.find((f) => f.id === id)?.name;
   const d = editing?.draft;
   const setD = (patch: Partial<Draft>) =>
@@ -296,6 +330,14 @@ export default function RecipeScreen() {
               ➕ Top-ups: {topoffLine(current) ?? 'more of the batch'}
               {current.topoff_food_id ? ` → logged as ${foodName(current.topoff_food_id) ?? 'its own food'}` : ''}
             </Text>
+            {altLines(current).map((l) => (
+              <Text key={l} style={styles.line}>
+                🥫 {l}
+              </Text>
+            ))}
+            {current.overfill_same_mix ? (
+              <Text style={styles.line}>↗️ Bottles over {fmtNum(current.prepared_ml)} ml: topped off from the same mix</Text>
+            ) : null}
             {current.feeds_per_batch ? (
               <Muted>
                 One batch covers ~{fmtNum(current.feeds_per_batch)} feeds of {fmtNum(current.batch_ml)} ml
@@ -354,8 +396,79 @@ export default function RecipeScreen() {
             <Stepper value={d.batch_ml} onChange={(v) => setD({ batch_ml: Math.max(0, v) })} step={5} suffix="ml" />
             <Muted style={{ marginTop: 4 }}>
               = {fmtNum(d.breast_milk_ml + d.batch_ml)} ml per feed. A partial feed splits in this
-              ratio; anything above it counts as batch top-off.
+              ratio.
             </Muted>
+            <Muted style={{ marginBottom: 4, marginTop: spacing.sm }}>
+              A bottle logged above {fmtNum(d.breast_milk_ml + d.batch_ml)} ml was topped off with…
+            </Muted>
+            <View style={styles.chips}>
+              <Chip label="the same mix" selected={d.overfill_same_mix} onPress={() => setD({ overfill_same_mix: true })} />
+              <Chip label="batch formula" selected={!d.overfill_same_mix} onPress={() => setD({ overfill_same_mix: false })} />
+            </View>
+
+            <Text style={[styles.label, { marginTop: spacing.md }]}>Other bottles (when breast milk runs short)</Text>
+            <Muted style={{ marginBottom: spacing.sm }}>
+              A bottle made with something in place of the breast milk, e.g. 60 ml Enfamil + 40 ml
+              batch. Huckleberry "Other" bottles whose note mentions the word split this way instead.
+            </Muted>
+            {d.alt_bottles.map((a, i) => (
+              <View key={i} style={styles.altBox}>
+                <View style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'flex-start' }}>
+                  <View style={{ flex: 1 }}>
+                    <Field label="Name" value={a.label} onChangeText={(v) => setAlt(i, { label: v })} placeholder="Enfamil" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Field
+                      label="Note word(s)"
+                      value={a.keywords}
+                      onChangeText={(v) => setAlt(i, { keywords: v })}
+                      placeholder="Enfamil"
+                    />
+                  </View>
+                  <Pressable
+                    onPress={() => setD({ alt_bottles: d.alt_bottles.filter((_, j) => j !== i) })}
+                    style={{ paddingTop: 30, paddingHorizontal: 4 }}
+                  >
+                    <Text style={{ color: colors.danger, fontSize: 18 }}>✕</Text>
+                  </Pressable>
+                </View>
+                <Muted style={{ marginBottom: 4 }}>In place of breast milk</Muted>
+                <Stepper value={a.milk_ml} onChange={(v) => setAlt(i, { milk_ml: Math.max(0, v) })} step={5} suffix="ml" />
+                <Muted style={{ marginBottom: 4, marginTop: spacing.sm }}>⚗️ Batch formula</Muted>
+                <Stepper value={a.batch_ml} onChange={(v) => setAlt(i, { batch_ml: Math.max(0, v) })} step={5} suffix="ml" />
+                <Muted style={{ marginBottom: 4, marginTop: spacing.sm }}>
+                  = {fmtNum(a.milk_ml + a.batch_ml)} ml. The {a.label || 'other'} part is logged as
+                </Muted>
+                <View style={styles.chips}>
+                  {liquids
+                    .filter((f) => f.category !== 'metabolic_formula' && f.category !== 'breast_milk')
+                    .map((f) => (
+                      <Chip key={f.id} label={f.name} selected={a.milk_food_id === f.id} onPress={() => setAlt(i, { milk_food_id: f.id })} />
+                    ))}
+                </View>
+              </View>
+            ))}
+            <Button
+              title="＋ Add another kind of bottle"
+              variant="secondary"
+              onPress={() =>
+                setD({
+                  alt_bottles: [
+                    ...d.alt_bottles,
+                    {
+                      label: 'Enfamil',
+                      keywords: 'Enfamil',
+                      milk_food_id:
+                        (liquids.find((f) => /enfamil/i.test(f.name)) ?? liquids.find((f) => f.category === 'formula'))?.id ?? '',
+                      milk_ml: 60,
+                      batch_ml: 40,
+                    },
+                  ],
+                })
+              }
+              style={{ marginBottom: spacing.sm }}
+            />
+            <Muted>Add the formula itself (with its label's protein and lysine) under Settings → Foods first.</Muted>
 
             <Text style={[styles.label, { marginTop: spacing.md }]}>The batch (powders + water)</Text>
             {d.powders.map((p, i) => (
@@ -601,9 +714,15 @@ function ResplitCard({ babyId }: { babyId: string }) {
     }
   };
 
+  const short = (name: string) => {
+    const n = name.toLowerCase();
+    if (n.startsWith('breast')) return 'bm';
+    if (n.includes('ga1') || n.includes('metabolic')) return 'GA1';
+    return name.replace(/\s*\([^)]*\)/g, '').trim() || 'formula';
+  };
   const fmtSplit = (m: Record<string, number>) =>
     Object.entries(m)
-      .map(([name, ml]) => `${fmtNum(ml)} ${name.toLowerCase().startsWith('breast') ? 'bm' : 'formula'}`)
+      .map(([name, ml]) => `${fmtNum(ml)} ${short(name)}`)
       .join(' + ');
 
   return (
@@ -668,6 +787,13 @@ const styles = StyleSheet.create({
   label: { fontSize: 13, fontFamily: fonts.semibold, color: colors.muted, marginBottom: 6 },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   historyRow: { paddingVertical: 10 },
+  altBox: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 10,
+    padding: spacing.sm,
+    marginBottom: spacing.sm,
+  },
   historyDates: { fontSize: 13, fontFamily: fonts.semibold, color: colors.muted },
   historyText: { fontSize: 15, color: colors.text, marginTop: 2 },
 });

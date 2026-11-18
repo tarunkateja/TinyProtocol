@@ -131,25 +131,33 @@ def daily_intake(
     tz_name = fam["timezone"]
     day_start = time.fromisoformat(fam.get("day_start") or "00:00")
 
-    window_from, _ = day_window(from_day, tz_name, day_start)
+    # Two extra days before the range feed the first days' 3-day averages.
+    lead_day = from_day - timedelta(days=2)
+    window_from, _ = day_window(lead_day, tz_name, day_start)
     _, window_to = day_window(to_day, tz_name, day_start)
+    now = datetime.now(timezone.utc)
+    rolling_from = now - timedelta(hours=72)
     items = logs.query_all_logs(
         baby.id,
-        keys.log_sk_bound(window_from),
-        keys.log_sk_bound(window_to),
+        keys.log_sk_bound(min(window_from, rolling_from)),
+        keys.log_sk_bound(max(window_to, now)),
         log_type=keys.LOG_TYPE_FEED,
     )
 
-    n_days = (to_day - from_day).days + 1
+    n_days = (to_day - lead_day).days + 1
     buckets = {
-        from_day + timedelta(days=i): DailyIntakeDay(day=from_day + timedelta(days=i))
+        lead_day + timedelta(days=i): DailyIntakeDay(day=lead_day + timedelta(days=i))
         for i in range(n_days)
     }
+    last_72h_ml, last_72h_feeds = 0.0, 0
     for item in items:
         feed = Feed.model_validate(item)
         occurred = feed.occurred_at
         if occurred.tzinfo is None:
             occurred = occurred.replace(tzinfo=timezone.utc)
+        if rolling_from <= occurred <= now:
+            last_72h_ml += feed.totals.total_ml
+            last_72h_feeds += 1
         b = buckets.get(effective_day(occurred, tz_name, day_start))
         if b is None:
             continue
@@ -163,11 +171,20 @@ def daily_intake(
         )
         b.other_ml = round(b.other_ml + t.other_ml, 1)
 
+    today = effective_day(now, tz_name, day_start)
+    for d, b in buckets.items():
+        trio = [buckets.get(d - timedelta(days=k)) for k in range(3)]
+        if d < today and all(x is not None and x.feed_count > 0 for x in trio):
+            b.avg3_total_ml = round(sum(x.total_ml for x in trio) / 3, 1)
+
     return DailyIntakeSeries(
         baby_id=baby.id,
         from_day=from_day,
         to_day=to_day,
-        days=[buckets[d] for d in sorted(buckets)],
+        days=[buckets[d] for d in sorted(buckets) if d >= from_day],
+        last_72h_ml=round(last_72h_ml, 1),
+        last_72h_feed_count=last_72h_feeds,
+        last_72h_per_day_ml=round(last_72h_ml / 3, 1),
     )
 
 

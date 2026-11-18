@@ -21,12 +21,13 @@ import type { DailyIntakeDay, DiaperSeries, WeightSeries } from '../lib/types';
 
 const RANGES = [7, 14, 30] as const;
 const CHART_HEIGHT = 190;
+const AVG_COLOR = colors.text;
 
 // Fixed stacking order (bottom → top) so position encodes the source even
 // where the hues are close for colorblind readers.
 const SERIES = [
   { key: 'breast_milk_ml', label: 'Breast milk', color: colors.breastMilk },
-  { key: 'formula_ml', label: 'Formula', color: colors.formula },
+  { key: 'formula_ml', label: 'Infant formula', color: colors.formula },
   { key: 'metabolic_formula_ml', label: 'GA1 formula', color: colors.metabolic },
   { key: 'other_ml', label: 'Other', color: colors.event },
 ] as const;
@@ -61,7 +62,10 @@ export default function Analytics() {
 
   const days = q.data?.days ?? [];
   const hasData = days.some((d) => d.feed_count > 0);
-  const axisMax = niceMax(Math.max(...days.map((d) => d.total_ml), 0));
+  const axisMax = niceMax(Math.max(...days.map((d) => Math.max(d.total_ml, d.avg3_total_ml ?? 0)), 0));
+  const hasAvg = days.some((d) => d.avg3_total_ml != null);
+  const [plotW, setPlotW] = useState(0);
+  const yesterday = days.length >= 2 ? days[days.length - 2] : undefined;
   const presentSeries = SERIES.filter((s) => days.some((d) => d[s.key] > 0));
   const lastWithFeeds = [...days].reverse().find((d) => d.feed_count > 0);
   const selected = days.find((d) => d.day === picked) ?? lastWithFeeds ?? days[days.length - 1];
@@ -92,6 +96,25 @@ export default function Analytics() {
         ))}
       </View>
 
+      {q.data && q.data.last_72h_feed_count > 0 && (
+        <>
+          <SectionTitle>Last 3 days</SectionTitle>
+          <Card>
+            <View style={styles.growthStats}>
+              <GrowthStat label="Per 24 h (last 72 h ÷ 3)" value={`${fmtNum(q.data.last_72h_per_day_ml, 0)} ml`} />
+              {yesterday && yesterday.feed_count > 0 ? (
+                <GrowthStat label="Yesterday, one 24 h day" value={`${fmtNum(yesterday.total_ml, 0)} ml`} />
+              ) : null}
+            </View>
+            <Muted style={{ marginTop: 4 }}>
+              {fmtNum(q.data.last_72h_ml, 0)} ml in {q.data.last_72h_feed_count} feeds over the last 72
+              hours. A single day can swing by a whole bottle depending on whether a feed lands just
+              before or after the day starts; three days together barely move.
+            </Muted>
+          </Card>
+        </>
+      )}
+
       <SectionTitle>Daily intake</SectionTitle>
       <Card>
         {q.isLoading ? (
@@ -110,7 +133,7 @@ export default function Analytics() {
                   </Text>
                 ))}
               </View>
-              <View style={styles.plot}>
+              <View style={styles.plot} onLayout={(e) => setPlotW(e.nativeEvent.layout.width)}>
                 {[0.25, 0.5, 0.75, 1].map((f) => (
                   <View key={f} style={[styles.gridline, { bottom: CHART_HEIGHT * f }]} />
                 ))}
@@ -125,6 +148,7 @@ export default function Analytics() {
                     />
                   ))}
                 </View>
+                {plotW > 0 && hasAvg && <AvgLine days={days} axisMax={axisMax} width={plotW} />}
               </View>
             </View>
             <View style={styles.xLabels}>
@@ -151,6 +175,12 @@ export default function Analytics() {
                   <Text style={styles.legendText}>{s.label}</Text>
                 </View>
               ))}
+              {hasAvg && (
+                <View style={styles.legendItem}>
+                  <View style={styles.legendLine} />
+                  <Text style={styles.legendText}>3-day average</Text>
+                </View>
+              )}
             </View>
           </>
         )}
@@ -167,6 +197,12 @@ export default function Analytics() {
           <SectionTitle>{fmtDateHeading(selected.day, effectiveToday)}</SectionTitle>
           <Card>
             <DetailRow label="Total fed" value={`${fmtNum(selected.total_ml)} ml`} bold />
+            {selected.avg3_total_ml != null && (
+              <DetailRow
+                label="3-day average (this day + 2 before)"
+                value={`${fmtNum(selected.avg3_total_ml, 0)} ml`}
+              />
+            )}
             {SERIES.map((s) =>
               selected[s.key] > 0 || presentSeries.includes(s) ? (
                 <DetailRow
@@ -183,8 +219,9 @@ export default function Analytics() {
       )}
 
       <Muted style={{ marginTop: spacing.md, marginBottom: spacing.md }}>
-        Tap a bar for that day's numbers. Breast milk includes latch estimates. This
-        chart only reads the feed log — timestamps are never changed.
+        Tap a bar for that day's numbers. Each bar is one day from day start to day start; the
+        line averages each day with the two before it. Breast milk includes latch estimates.
+        This chart only reads the feed log — timestamps are never changed.
       </Muted>
 
       <SectionTitle>💩 Poop & diapers</SectionTitle>
@@ -491,6 +528,47 @@ function WeightChart({ points }: { points: { t: number; g: number }[] }) {
   );
 }
 
+/** The 3-day average drawn over the bars: dots at each bar's center joined
+ * by thin rotated Views (same trick as the weight chart — no SVG dependency).
+ * pointerEvents none so taps still reach the bars underneath. */
+function AvgLine({ days, axisMax, width }: { days: DailyIntakeDay[]; axisMax: number; width: number }) {
+  const colW = width / days.length;
+  const pts = days
+    .map((d, i) =>
+      d.avg3_total_ml != null
+        ? { i, x: (i + 0.5) * colW, y: CHART_HEIGHT * (1 - d.avg3_total_ml / axisMax) }
+        : null,
+    )
+    .filter((p): p is { i: number; x: number; y: number } => p !== null);
+  return (
+    <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+      {pts.slice(1).map((p, k) => {
+        const a = pts[k];
+        if (p.i !== a.i + 1) return null; // a gap day: don't bridge it
+        const len = Math.hypot(p.x - a.x, p.y - a.y);
+        const angle = (Math.atan2(p.y - a.y, p.x - a.x) * 180) / Math.PI;
+        return (
+          <View
+            key={p.i}
+            style={[
+              styles.avgLine,
+              {
+                width: len,
+                left: (a.x + p.x) / 2 - len / 2,
+                top: (a.y + p.y) / 2 - 1,
+                transform: [{ rotate: `${angle}deg` }],
+              },
+            ]}
+          />
+        );
+      })}
+      {pts.map((p) => (
+        <View key={`d${p.i}`} style={[styles.avgDot, { left: p.x - 3, top: p.y - 3 }]} />
+      ))}
+    </View>
+  );
+}
+
 function Bar({
   day,
   axisMax,
@@ -612,6 +690,15 @@ const styles = StyleSheet.create({
   },
   legendItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   legendDot: { width: 10, height: 10, borderRadius: 5 },
+  legendLine: { width: 16, height: 2, borderRadius: 1, backgroundColor: AVG_COLOR },
+  avgLine: { position: 'absolute', height: 2, borderRadius: 1, backgroundColor: AVG_COLOR, opacity: 0.85 },
+  avgDot: {
+    position: 'absolute',
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: AVG_COLOR,
+  },
   legendText: { fontFamily: fonts.semibold, fontSize: 12, color: colors.text },
 
   detailRow: {

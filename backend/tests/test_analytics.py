@@ -133,3 +133,37 @@ def test_weight_history(auth_client):
     assert body["date_of_birth"] == "2026-05-22"
     assert body["birth_weight_g"] == 3200
     assert [w["weight_g"] for w in body["weights"]] == [3600, 4100]
+
+
+def test_daily_intake_three_day_average_and_rolling_72h(auth_client):
+    from datetime import date, timedelta
+
+    c = auth_client
+    bm = c.foods["Breast milk"]
+    today = datetime.now(TZ).date()
+
+    def feed(day: date, hh: int, ml: float):
+        at = datetime(day.year, day.month, day.day, hh, tzinfo=TZ).astimezone(timezone.utc)
+        resp = c.post(f"/v1/babies/{c.baby_id}/feeds", json={
+            "occurred_at": at.isoformat(),
+            "components": [{"kind": "liquid", "food_id": bm["id"], "volume_ml": ml}],
+        })
+        assert resp.status_code == 201, resp.text
+
+    # Six days ago .. yesterday: 600, 700, 800, (none), 650, 700. The range
+    # starts 4 days ago, so its first average reaches back before `from`.
+    totals = {6: 600, 5: 700, 4: 800, 2: 650, 1: 700}
+    for ago, ml in totals.items():
+        feed(today - timedelta(days=ago), 10, ml)
+    frm, to = today - timedelta(days=4), today
+    body = c.get(f"/v1/babies/{c.baby_id}/analytics/daily?from={frm}&to={to}").json()
+    by_day = {d["day"]: d for d in body["days"]}
+    assert list(by_day) == [str(frm + timedelta(days=i)) for i in range(5)]
+    assert by_day[str(today - timedelta(days=4))]["avg3_total_ml"] == 700  # (600+700+800)/3
+    # A day with nothing logged leaves no honest 3-day average around it.
+    assert by_day[str(today - timedelta(days=3))]["avg3_total_ml"] is None
+    assert by_day[str(today - timedelta(days=1))]["avg3_total_ml"] is None
+    assert by_day[str(today)]["avg3_total_ml"] is None  # today is still filling up
+    # 10 AM yesterday and two days ago are inside the last 72 h; 4 days ago never is.
+    assert body["last_72h_feed_count"] == 2 and body["last_72h_ml"] == 1350
+    assert body["last_72h_per_day_ml"] == round(body["last_72h_ml"] / 3, 1)

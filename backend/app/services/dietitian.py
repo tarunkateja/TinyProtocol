@@ -9,7 +9,12 @@ Format (set by the parents with the dietitian, September 2026):
       - 9:00 AM — 90 ml prepared mix (large spit up)
       - 12:10 PM — 100 ml (90 ml prepared mix + 10 ml top-off)
       - 3:05 PM — 20 ml Pro-Phree top-up
-    Total: 655 ml (400.2 ml breast milk).
+      - 6:00 PM — 100 ml Enfamil mix
+    Total: 655 ml (400.2 ml breast milk, 100 ml Enfamil).
+
+An "Enfamil mix" is a recipe's alternate bottle (made with Enfamil where the
+breast milk would be), picked from the feed's note at import time; its milk is
+counted on the Total line next to breast milk, and only on days that had one.
 
 Lean on purpose: the dietitian tracks against the plan and knows the recipe,
 so nothing here explains what the mix is, and no lysine/protein/meds/diaper
@@ -69,6 +74,7 @@ def dietitian_report(
 
     recipes = recipe_svc.list_recipes(family_id, baby.id)
     topup_labels = _topup_labels(recipes)
+    alt_labels = _alt_labels(recipes)
     imports = {
         _normalize_hb_key(i["hb_key"]): i
         for i in family_items.list_by_prefix(family_id, f"HBIMPORT#{baby.id}#")
@@ -95,7 +101,7 @@ def dietitian_report(
         sections.append(
             _section(
                 d, _day_label(d), wf, wt, by_day.get(d, []), weight_by_day.get(d),
-                recipes, topup_labels, imports, tz_name, warnings, partial=False,
+                recipes, topup_labels, alt_labels, imports, tz_name, warnings, partial=False,
                 include_notes=include_notes,
             )
         )
@@ -108,7 +114,7 @@ def dietitian_report(
         label = f"{_day_label(today)} (so far)"
     partial = _section(
         today, label, wf_today, now, by_day.get(today, []), weight_by_day.get(today),
-        recipes, topup_labels, imports, tz_name, warnings, partial=True,
+        recipes, topup_labels, alt_labels, imports, tz_name, warnings, partial=True,
         include_notes=include_notes,
     )
     if partial.feed_count:
@@ -142,6 +148,7 @@ def _section(
     weight: Optional[Event],
     recipes: list[Recipe],
     topup_labels: dict[str, str],
+    alt_labels: dict[str, str],
     imports: dict[str, dict],
     tz_name: str,
     warnings: list[ReportWarning],
@@ -158,13 +165,16 @@ def _section(
     described: list[tuple[Feed, str, Optional[str]]] = []
     for feed, raw in sorted(day_feeds, key=lambda fr: fr[0].occurred_at):
         recipe = recipe_svc.recipe_in_effect(recipes, feed.occurred_at)
-        parts = _classify(feed, topup_labels)
+        parts = _classify(feed, topup_labels, alt_labels)
         text = _feed_text(feed, parts, recipe)
         note = feed.notes if include_notes else None
         if include_notes and not note and raw.get("hb_key"):
             imp = imports.get(_normalize_hb_key(raw["hb_key"]))
             note = imp.get("notes") if imp else None
-        described.append((feed, text, _clean_note(note)))
+        note = _clean_note(note)
+        if note and parts["alt"] and recipe and _note_is_just_label(note, recipe):
+            note = None  # "(Enfamil)" after "100 ml Enfamil mix" says nothing new
+        described.append((feed, text, note))
         _feed_warnings(feed, parts, recipe, day, tz_name, warnings)
 
         s.feed_count += 1
@@ -173,6 +183,8 @@ def _section(
         s.breast_milk_ml = _r1(s.breast_milk_ml + t.breast_milk_ml)
         s.batch_ml = _r1(s.batch_ml + parts["batch"])
         s.topup_ml = _r1(s.topup_ml + sum(parts["topups"].values()))
+        for label, ml in parts["alt"].items():
+            s.alt_ml[label] = _r1(s.alt_ml.get(label, 0) + ml)
 
     # Feeds logged at the same minute are one bottle split across two
     # Huckleberry entries ("70 ml prepared mix + 20 ml breast milk").
@@ -200,7 +212,9 @@ def _render(s: ReportSection, tz_name: str) -> str:
     else:
         lines.append("  - nothing logged")
     if not s.partial and s.feed_count:
-        lines.append(f"Total: {_n(s.total_ml)} ml ({_n(s.breast_milk_ml)} ml breast milk).")
+        milks = [f"{_n(s.breast_milk_ml)} ml breast milk"]
+        milks += [f"{_n(ml)} ml {label}" for label, ml in s.alt_ml.items() if ml > 0]
+        lines.append(f"Total: {_n(s.total_ml)} ml ({', '.join(milks)}).")
     if s.weight_g:
         lines.append(f"Weight: {_n(round(s.weight_g / 1000, 3))} kg")
     return "\n".join(lines)
@@ -209,15 +223,22 @@ def _render(s: ReportSection, tz_name: str) -> str:
 # --------------------------------------------------------------------------- #
 # One feed
 # --------------------------------------------------------------------------- #
-def _classify(feed: Feed, topup_labels: dict[str, str]) -> dict:
+def _classify(
+    feed: Feed, topup_labels: dict[str, str], alt_labels: Optional[dict[str, str]] = None
+) -> dict:
     """Split a feed's components into what the dietitian message names:
-    breast milk, prepared batch, the recipe's own top-up food, nursing."""
-    parts: dict = {"bm": 0.0, "batch": 0.0, "topups": {}, "latch": [], "other": []}
+    breast milk, prepared batch, the recipe's own top-up food, an alternate
+    bottle's milk (Enfamil), nursing."""
+    alt_labels = alt_labels or {}
+    parts: dict = {"bm": 0.0, "batch": 0.0, "topups": {}, "alt": {}, "latch": [], "other": []}
     for c in feed.components:
         if c.kind == "latch":
             parts["latch"].append(c)
         elif c.kind == "powder":
             parts["other"].append(f"{_n(c.scoops)} scoop {c.food_name}")
+        elif c.food_id in alt_labels:
+            label = alt_labels[c.food_id]
+            parts["alt"][label] = _r1(parts["alt"].get(label, 0) + c.volume_ml)
         elif c.food_category == "breast_milk":
             parts["bm"] = _r1(parts["bm"] + c.volume_ml)
         elif c.food_id in topup_labels:
@@ -232,8 +253,23 @@ def _classify(feed: Feed, topup_labels: dict[str, str]) -> dict:
 
 def _feed_text(feed: Feed, parts: dict, recipe: Optional[Recipe]) -> str:
     bm, batch = parts["bm"], parts["batch"]
-    mix = _r1(bm + batch)
     pieces: list[str] = []
+    alt_ml = _r1(sum(parts["alt"].values()))
+    if alt_ml > 0:
+        label = " + ".join(parts["alt"])
+        if batch > 0:
+            # An alternate bottle: its milk + batch, named after the milk.
+            alt_mix = _r1(alt_ml + batch)
+            prepared = _alt_prepared(recipe, label)
+            if prepared and alt_mix > prepared + 0.05:
+                pieces.append(f"{_n(prepared)} ml {label} mix")
+                pieces.append(f"{_n(_r1(alt_mix - prepared))} ml top-off")
+            else:
+                pieces.append(f"{_n(alt_mix)} ml {label} mix")
+            batch = 0.0  # used up by the alternate bottle
+        else:
+            pieces.append(f"{_n(alt_ml)} ml {label}")
+    mix = _r1(bm + batch)
     if bm > 0 and batch > 0:
         prepared = recipe.prepared_ml if recipe else None
         if prepared and mix > prepared + 0.05:
@@ -264,7 +300,13 @@ def _feed_warnings(
     when = _when(feed.occurred_at, tz_name)
     bm, batch = parts["bm"], parts["batch"]
     prepared = recipe.prepared_ml if recipe else None
-    if bm > 0 and batch > 0 and prepared and bm + batch > prepared + 0.05:
+    alt_ml = sum(parts["alt"].values())
+    if alt_ml > 0:
+        # An alternate (Enfamil) bottle: compare against its own volume.
+        bm = alt_ml
+        prepared = _alt_prepared(recipe, " + ".join(parts["alt"]))
+    same_mix = bool(recipe and recipe.overfill_same_mix)
+    if bm > 0 and batch > 0 and prepared and bm + batch > prepared + 0.05 and not same_mix:
         warnings.append(ReportWarning(
             day=day, at=feed.occurred_at,
             message=(
@@ -345,6 +387,35 @@ def _topup_labels(recipes: list[Recipe]) -> dict[str, str]:
         else:
             labels.setdefault(r.topoff_food_id, "top-up")
     return labels
+
+
+def _alt_labels(recipes: list[Recipe]) -> dict[str, str]:
+    """food_id -> 'Enfamil' for every recipe's alternate-bottle milk."""
+    labels: dict[str, str] = {}
+    for r in recipes:
+        for alt in r.alt_bottles:
+            labels.setdefault(alt.milk_food_id, alt.label)
+    return labels
+
+
+def _alt_prepared(recipe: Optional[Recipe], label: str) -> Optional[float]:
+    if recipe is None:
+        return None
+    alt = next((a for a in recipe.alt_bottles if a.label == label), None)
+    return alt.prepared_ml if alt else None
+
+
+def _note_is_just_label(note: str, recipe: Recipe) -> bool:
+    """True when the whole note is an alternate bottle's keyword/label."""
+    words = recipe_svc._words(note)
+    for alt in recipe.alt_bottles:
+        for kw in [*alt.keywords, alt.label]:
+            kw_words = recipe_svc._words(kw)
+            if len(kw_words) == len(words) and all(
+                recipe_svc._close(w, k) for w, k in zip(words, kw_words)
+            ):
+                return True
+    return False
 
 
 def _group_same_minute(

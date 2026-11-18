@@ -145,6 +145,11 @@ class DailyIntakeDay(BaseModel):
     formula_ml: float = 0
     metabolic_formula_ml: float = 0
     other_ml: float = 0
+    # Mean total_ml of this day and the two before it — steadier than one
+    # day-start-to-day-start window, where a bottle at 7:55 vs 8:05 moves a
+    # whole feed between days. None for today (still filling up) and when
+    # any of the three days has no feeds logged.
+    avg3_total_ml: Optional[float] = None
 
 
 class DailyIntakeSeries(BaseModel):
@@ -152,6 +157,11 @@ class DailyIntakeSeries(BaseModel):
     from_day: date
     to_day: date
     days: list[DailyIntakeDay]
+    # Rolling: everything fed in the 72 hours before the request, ÷ 3 =
+    # ml per 24 h right now, independent of where the day boundary falls.
+    last_72h_ml: float = 0
+    last_72h_feed_count: int = 0
+    last_72h_per_day_ml: float = 0
 
 
 class DiaperDay(BaseModel):

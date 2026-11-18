@@ -352,3 +352,86 @@ def test_formula_per_recipe_uses_the_recipes_topoff_food(hb_client):
     ev["last_updated"] = 2000.0
     assert _sync(c)["updated"] == 1  # upstream time edit re-resolves per recipe
     assert _feed_split(c, by_key["old-top"]["feed_id"]) == {"Pro-Phree top-up (prepared)": 25}
+
+
+# --------------------------------------------------------------------------- #
+# Over-full bottles from the same mix + alternate (Enfamil) bottles
+# --------------------------------------------------------------------------- #
+def _enfamil_alt(food_id="enf", milk=60, batch=40):
+    return {"label": "Enfamil", "keywords": ["Enfamil"], "milk_food_id": food_id,
+            "milk_ml": milk, "batch_ml": batch}
+
+
+def _post_raw(c, **body):
+    base = {"label": "Plan", "effective_at": T0.isoformat(), "breast_milk_ml": 55, "batch_ml": 25}
+    return c.post(f"/v1/babies/{c.baby_id}/recipes", json={**base, **body})
+
+
+def test_overfill_same_mix_splits_the_whole_volume_in_ratio():
+    capped = _recipe(breast_milk_ml=65, batch_ml=35)
+    same = _recipe(breast_milk_ml=65, batch_ml=35, overfill_same_mix=True)
+    assert svc.split_bottle(capped, 125) == (65, 60)        # extra counted as batch
+    assert svc.split_bottle(same, 125) == (81.3, 43.7)      # 125 × 65/100
+    assert svc.split_bottle(same, 100) == svc.split_bottle(capped, 100) == (65, 35)
+    assert svc.split_bottle(same, 50) == svc.split_bottle(capped, 50) == (32.5, 17.5)
+
+
+def test_alt_bottle_matches_note_keywords_with_one_typo():
+    r = _recipe(breast_milk_ml=65, batch_ml=35, alt_bottles=[_enfamil_alt()])
+    for note in ("Enfamil", "enfamil 1 tsp miralax", "Enfamil - expired", "Engamil", "ENFAMIL!"):
+        assert svc.match_alt_bottle(r, note) is not None, note
+    for note in (None, "", "1tsp miralax in 100ml", "Very sleepy", "family"):
+        assert svc.match_alt_bottle(r, note) is None, note
+    assert svc.match_alt_bottle(_recipe(), "Enfamil") is None  # recipe has no alternates
+
+
+def test_mixed_components_uses_the_alt_bottle_named_in_the_note():
+    r = _recipe(breast_milk_ml=65, batch_ml=35, alt_bottles=[_enfamil_alt()],
+                overfill_same_mix=True)
+    plain = svc.mixed_components(r, 100, "bm", "ga1", notes="1 tsp miralax")
+    assert [(c.food_id, c.volume_ml) for c in plain] == [("bm", 65), ("ga1", 35)]
+    enf = svc.mixed_components(r, 100, "bm", "ga1", notes="Enfamil")
+    assert [(c.food_id, c.volume_ml) for c in enf] == [("enf", 60), ("ga1", 40)]
+    part = svc.mixed_components(r, 95, "bm", "ga1", notes="Engamil")
+    assert [(c.food_id, c.volume_ml) for c in part] == [("enf", 57), ("ga1", 38)]
+    assert "Enfamil bottles (note says Enfamil): 60 Enfamil + 40 batch" in svc.describe(r)
+
+
+def test_alt_bottle_validation(auth_client):
+    c = auth_client
+    bad = _post_raw(c, alt_bottles=[{**_enfamil_alt("nope")}])
+    assert bad.status_code == 422  # milk food must be a liquid in the catalog
+    no_kw = _post_raw(c, alt_bottles=[{**_enfamil_alt(c.foods["Breast milk"]["id"]), "keywords": [" "]}])
+    assert no_kw.status_code == 422
+
+
+def test_huckleberry_enfamil_note_splits_by_the_alt_bottle(hb_client):
+    c = hb_client
+    now = datetime.now(timezone.utc)
+    enf = c.post("/v1/foods", json={
+        "name": "Enfamil (NeuroPro Gentlease, prepared)", "category": "formula",
+        "unit_basis": "per_100ml", "natural_protein_g_per_unit": 1.55, "lysine_mg_per_unit": 142,
+    }).json()
+    r = _post_raw(c, label="100s", effective_at=(now - timedelta(days=3)).isoformat(),
+                     breast_milk_ml=65, batch_ml=35, overfill_same_mix=True,
+                     alt_bottles=[_enfamil_alt(enf["id"])])
+    assert r.status_code == 201, r.text
+    _enable_recipe_mode(c)
+    c.hb_events.extend([
+        _bottle("bm-mix", 20, bottle_type="Other", amount_ml=100.0),
+        _bottle("enf-mix", 10, bottle_type="Other", amount_ml=100.0, notes="Enfamil"),
+        _bottle("over", 5, bottle_type="Other", amount_ml=110.0),
+    ])
+    assert _sync(c)["auto_imported"] == 3
+    by_key = {i["hb_key"]: i for i in _imports(c, "imported")}
+    assert _feed_split(c, by_key["bm-mix"]["feed_id"]) == {
+        "Breast milk": 65, "GA1 metabolic formula (prepared)": 35,
+    }
+    assert _feed_split(c, by_key["enf-mix"]["feed_id"]) == {
+        "Enfamil (NeuroPro Gentlease, prepared)": 60, "GA1 metabolic formula (prepared)": 40,
+    }
+    feed = c.get(f"/v1/feeds/{by_key['enf-mix']['feed_id']}").json()
+    assert feed["totals"]["lysine_mg"] == 85.2  # 60 ml × 142 mg/100 ml; the batch has none
+    assert _feed_split(c, by_key["over"]["feed_id"]) == {
+        "Breast milk": 71.5, "GA1 metabolic formula (prepared)": 38.5,
+    }

@@ -22,7 +22,8 @@ MAX_RESPLIT_DAYS = 62
 
 def _check_foods(user: CurrentUser, body) -> None:
     foods = get_foods_map(user.family_id)
-    for fid in (body.breast_milk_food_id, body.batch_food_id, body.topoff_food_id):
+    alt_foods = tuple(a.milk_food_id for a in (getattr(body, "alt_bottles", None) or []))
+    for fid in (body.breast_milk_food_id, body.batch_food_id, body.topoff_food_id, *alt_foods):
         if fid and (fid not in foods or foods[fid].unit_basis != "per_100ml"):
             raise HTTPException(422, f"{fid} is not a liquid food")
     for p in (body.powders or []) + (body.topoff_powders or []):
@@ -146,7 +147,10 @@ def resplit(
         total = round(sum(c.volume_ml for c in feed.components), 1)
         try:
             if imp.bottle_type == "Other":
-                new_components = svc.mixed_components(recipe, total, bm_default, batch_default)
+                new_components = svc.mixed_components(
+                    recipe, total, bm_default, batch_default,
+                    notes=feed.notes or getattr(imp, "notes", None),
+                )
             else:
                 new_components = svc.topoff_components(recipe, total, batch_default)
             comps, totals = compute_components(new_components, foods)

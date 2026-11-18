@@ -25,6 +25,8 @@ class ReportSection(BaseModel):
     breast_milk_ml: float = 0
     batch_ml: float = 0  # prepared-batch formula (mix share + top-offs)
     topup_ml: float = 0  # the recipe's own top-up food (e.g. Pro-Phree)
+    # Alternate-bottle milk by label, e.g. {"Enfamil": 120} (breast milk's stand-in).
+    alt_ml: dict[str, float] = {}
     weight_g: Optional[float] = None
     text: str = ""
 
