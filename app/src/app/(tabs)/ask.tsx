@@ -240,7 +240,7 @@ export default function Ask() {
             <View style={[styles.bubble, styles.assistantBubble]}>
               <ActivityIndicator color={colors.primary} />
             </View>
-          ) : null
+          ) : undefined
         }
       />
       <Muted style={{ textAlign: 'center', paddingHorizontal: spacing.lg }}>

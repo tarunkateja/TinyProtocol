@@ -37,35 +37,35 @@ export default function TabsLayout() {
         name="home"
         options={{
           title: 'Home',
-          tabBarIcon: ({ color, size }) => <Ionicons name="pulse" color={color} size={size} />,
+          tabBarIcon: ({ color, size }) => <Ionicons name="pulse" color={color as string} size={size} />,
         }}
       />
       <Tabs.Screen
         name="index"
         options={{
           title: 'Log',
-          tabBarIcon: ({ color, size }) => <Ionicons name="list" color={color} size={size} />,
+          tabBarIcon: ({ color, size }) => <Ionicons name="list" color={color as string} size={size} />,
         }}
       />
       <Tabs.Screen
         name="trends"
         options={{
           title: 'Trends',
-          tabBarIcon: ({ color, size }) => <Ionicons name="trending-up" color={color} size={size} />,
+          tabBarIcon: ({ color, size }) => <Ionicons name="trending-up" color={color as string} size={size} />,
         }}
       />
       <Tabs.Screen
         name="ask"
         options={{
           title: 'Ask',
-          tabBarIcon: ({ color, size }) => <Ionicons name="sparkles" color={color} size={size} />,
+          tabBarIcon: ({ color, size }) => <Ionicons name="sparkles" color={color as string} size={size} />,
         }}
       />
       <Tabs.Screen
         name="care"
         options={{
           title: 'Care',
-          tabBarIcon: ({ color, size }) => <Ionicons name="medkit" color={color} size={size} />,
+          tabBarIcon: ({ color, size }) => <Ionicons name="medkit" color={color as string} size={size} />,
         }}
       />
     </Tabs>
